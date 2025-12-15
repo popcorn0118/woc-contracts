@@ -64,4 +64,45 @@ jQuery(function ($) {
         });
     });
 
+
+    // 複製網址
+    $('#woc-copy-link-btn').on('click', function (e) {
+        e.preventDefault();
+
+        var link  = $(this).data('link');
+        var $input = $('#woc-contract-link-url');
+
+        function fallbackCopy() {
+            if ($input.length) {
+                $input.trigger('focus').trigger('select');
+            }
+            try {
+                document.execCommand('copy');
+                alert('連結已複製');
+            } catch (err) {
+                alert('請手動複製上方連結');
+            }
+        }
+
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(link).then(function () {
+                alert('連結已複製');
+            }).catch(function () {
+                fallbackCopy();
+            });
+        } else {
+            fallbackCopy();
+        }
+    });
+
+    // 開啟連結
+    $('#woc-open-link-btn').on('click', function (e) {
+        e.preventDefault();
+
+        var link = $(this).data('link');
+        if (link) {
+            window.open(link, '_blank');
+        }
+    });
+
 });

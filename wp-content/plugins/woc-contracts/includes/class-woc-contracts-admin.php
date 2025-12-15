@@ -13,6 +13,10 @@ class WOC_Contracts_Admin {
         add_action( 'save_post',             [ __CLASS__, 'save_contract_meta' ], 10, 2 );
         add_action( 'admin_enqueue_scripts', [ __CLASS__, 'enqueue_admin_assets' ] );
         add_action( 'wp_ajax_woc_load_template', [ __CLASS__, 'ajax_load_template' ] );
+
+         // 後台 UI 相關 filter
+        add_filter( 'get_sample_permalink_html', [ __CLASS__, 'filter_sample_permalink_html' ], 10, 5 );
+        add_filter( 'post_row_actions',          [ __CLASS__, 'filter_post_row_actions' ], 10, 2 );
     }
 
     /**
@@ -23,6 +27,7 @@ class WOC_Contracts_Admin {
             return;
         }
 
+        // 合約明細（範本選擇）
         add_meta_box(
             'woc_contract_details',
             '合約明細',
@@ -31,7 +36,67 @@ class WOC_Contracts_Admin {
             'normal',
             'high'
         );
+
+        // 簽署連結
+        add_meta_box(
+            'woc_contract_link',
+            '簽署連結',
+            [ __CLASS__, 'render_contract_link_box' ],
+            WOC_Contracts_CPT::POST_TYPE_CONTRACT,
+            'side',
+            'high'
+        );
     }
+
+    /**
+     * 顯示簽署連結（後台側邊欄）
+     */
+    public static function render_contract_link_box( $post ) {
+
+        $token = get_post_meta( $post->ID, WOC_Contracts_CPT::META_VIEW_TOKEN, true );
+    
+        // 還沒產 token？提示先儲存
+        if ( empty( $token ) ) {
+            echo '<p>請先儲存一次合約，系統會自動產生專屬簽署連結。</p>';
+            return;
+        }
+    
+        // 前台簽署網址
+        $url = add_query_arg(
+            [ 't' => $token ],
+            get_permalink( $post )
+        );
+        ?>
+        <p>將此連結傳給客戶，即可線上檢視並簽署此合約。</p>
+    
+        <p>
+            <input type="text"
+                   readonly
+                   id="woc-contract-link-url"
+                   class="widefat"
+                   value="<?php echo esc_attr( $url ); ?>">
+        </p>
+    
+        <p>
+            <button type="button"
+                    class="button"
+                    id="woc-copy-link-btn"
+                    data-link="<?php echo esc_attr( $url ); ?>">
+                複製連結
+            </button>
+    
+            <button type="button"
+                    class="button button-secondary"
+                    id="woc-open-link-btn"
+                    data-link="<?php echo esc_attr( $url ); ?>">
+                開啟連結
+            </button>
+        </p>
+    
+        <p class="description">複製後貼給客戶，或直接點「開啟連結」檢視。</p>
+        <?php
+    }
+    
 
     /**
      * Meta Box HTML：合約範本選擇 + 載入按鈕
@@ -105,13 +170,22 @@ class WOC_Contracts_Admin {
             return;
         }
 
-        // 儲存範本 ID（允許空值）
+        // 1. 儲存範本 ID（允許空值）
         $template_id = isset( $_POST['woc_template_id'] ) ? (int) $_POST['woc_template_id'] : 0;
 
         if ( $template_id > 0 ) {
             update_post_meta( $post_id, WOC_Contracts_CPT::META_TEMPLATE_ID, $template_id );
         } else {
             delete_post_meta( $post_id, WOC_Contracts_CPT::META_TEMPLATE_ID );
+        }
+
+        // 2. 若尚未有 view_token，產一組
+        $existing_token = get_post_meta( $post_id, WOC_Contracts_CPT::META_VIEW_TOKEN, true );
+
+        if ( empty( $existing_token ) ) {
+            // 亂數：32 字元就夠用
+            $token = wp_generate_password( 32, false, false );
+            update_post_meta( $post_id, WOC_Contracts_CPT::META_VIEW_TOKEN, $token );
         }
     }
 
@@ -166,6 +240,47 @@ class WOC_Contracts_Admin {
             'content' => $content,
         ] );
     }
+
+    /**
+     * 處理永久連結區塊
+     */
+    public static function filter_sample_permalink_html( $html, $post_id, $new_title, $new_slug, $post ) {
+
+        if ( $post->post_type !== WOC_Contracts_CPT::POST_TYPE_CONTRACT ) {
+            return $html;
+        }
+    
+        // 直接不顯示整個永久連結區塊
+        return '';
+    }
+
+    /**
+     * 列表「檢視」改成簽署連結
+     */
+    public static function filter_post_row_actions( $actions, $post ) {
+
+        if ( $post->post_type !== WOC_Contracts_CPT::POST_TYPE_CONTRACT ) {
+            return $actions;
+        }
+    
+        $token = get_post_meta( $post->ID, WOC_Contracts_CPT::META_VIEW_TOKEN, true );
+    
+        if ( ! empty( $token ) ) {
+            $url = add_query_arg( 't', $token, get_permalink( $post ) );
+    
+            $actions['view'] = sprintf(
+                '<a href="%s" target="_blank">%s</a>',
+                esc_url( $url ),
+                '檢視（簽署連結）'
+            );
+        } else {
+            unset( $actions['view'] );
+        }
+    
+        return $actions;
+    }
+    
+
 }
 
 WOC_Contracts_Admin::init();

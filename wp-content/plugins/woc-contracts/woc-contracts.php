@@ -21,6 +21,8 @@ define( 'WOC_CONTRACTS_URL',  plugin_dir_url( __FILE__ ) );
 
 require_once WOC_CONTRACTS_PATH . 'includes/class-woc-contracts-cpt.php';
 require_once WOC_CONTRACTS_PATH . 'includes/class-woc-contracts-admin.php';
+require_once WOC_CONTRACTS_PATH . 'includes/class-woc-contracts-frontend.php';
+
 
 
 /**
