@@ -12,12 +12,29 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 /**
- * 基本常數
+ * 基本常數（加防呆，避免重複定義）
  */
-define( 'WOC_CONTRACTS_VERSION', '0.1.0' );
-define( 'WOC_CONTRACTS_FILE', __FILE__ );
-define( 'WOC_CONTRACTS_PATH', plugin_dir_path( __FILE__ ) );
-define( 'WOC_CONTRACTS_URL',  plugin_dir_url( __FILE__ ) );
+if ( ! defined( 'WOC_CONTRACTS_VERSION' ) ) {
+    define( 'WOC_CONTRACTS_VERSION', '0.1.0' );
+}
+
+if ( ! defined( 'WOC_CONTRACTS_FILE' ) ) {
+    define( 'WOC_CONTRACTS_FILE', __FILE__ );
+}
+
+if ( ! defined( 'WOC_CONTRACTS_PATH' ) ) {
+    define( 'WOC_CONTRACTS_PATH', plugin_dir_path( __FILE__ ) );
+}
+
+/* 給之前用到 WOC_CONTRACTS_DIR 的地方用，同值 alias */
+if ( ! defined( 'WOC_CONTRACTS_DIR' ) ) {
+    define( 'WOC_CONTRACTS_DIR', plugin_dir_path( __FILE__ ) );
+}
+
+if ( ! defined( 'WOC_CONTRACTS_URL' ) ) {
+    define( 'WOC_CONTRACTS_URL', plugin_dir_url( __FILE__ ) );
+}
+
 
 require_once WOC_CONTRACTS_PATH . 'includes/class-woc-contracts-cpt.php';
 require_once WOC_CONTRACTS_PATH . 'includes/class-woc-contracts-admin.php';
