@@ -18,3 +18,25 @@
     margin-bottom: 0;
     padding: 16px;
 }
+
+/* 簽名區 */
+#woc-signature-pad {
+    display: block;
+    width: 100%;
+    max-width: 100%;
+    height: auto;
+    border:1px solid #ccc;
+    background:#fafafa;
+}
+.woc-signature-image-box {
+    display:block;
+    border:0;
+    padding:0;
+    margin-bottom:15px;
+}
+
+.woc-signature-image {
+    display:block;
+    width:100%;
+    height:auto;
+}

@@ -45,9 +45,8 @@ $signature_url = get_post_meta( $contract_id, WOC_Contracts_CPT::META_SIGNATURE_
 
             <?php if ( $signature_url ) : ?>
                 <p>簽名：</p>
-                <div style="border:1px solid #ccc;display:inline-block;padding:10px 20px;margin-bottom:15px;">
-                    <img src="<?php echo esc_url( $signature_url ); ?>" alt="Signature"
-                         style="max-width:400px;height:auto;">
+                <div class="woc-signature-image-box">
+                    <img src="<?php echo esc_url( $signature_url ); ?>" alt="Signature" class="woc-signature-image">
                 </div>
             <?php endif; ?>
 
@@ -73,11 +72,11 @@ $signature_url = get_post_meta( $contract_id, WOC_Contracts_CPT::META_SIGNATURE_
             <hr style="margin:40px 0 20px;">
 
             <h2 style="font-size:20px;margin-bottom:10px;">簽名</h2>
-            <p style="margin-bottom:10px;">請使用滑鼠或手指在下方框內簽名，確認無誤後送出。</p>
+            <p style="margin-bottom:10px;">請使用手寫筆或滑鼠或手指簽名以授權此合約。通過電子簽名此文檔，表示您同意上面建立的條款。文檔簽名後，您可以列印保存。</p>
 
-            <div style="border:1px solid #ccc;padding:10px;display:inline-block;">
-                <canvas id="woc-signature-pad" width="600" height="200"
-                        style="border:1px solid #ccc;background:#fafafa;"></canvas>
+            <div>
+                <!-- 拿掉固定 width/height，交給 JS 依容器寬度設定 -->
+                <canvas id="woc-signature-pad"></canvas>
             </div>
 
             <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>"
@@ -115,27 +114,57 @@ $signature_url = get_post_meta( $contract_id, WOC_Contracts_CPT::META_SIGNATURE_
     var canvas = document.getElementById('woc-signature-pad');
     if (!canvas) return;
 
-    var ctx = canvas.getContext('2d');
-    var drawing = false;
+    var ctx      = canvas.getContext('2d');
+    var drawing  = false;
     var hasDrawn = false;
+
+    /**
+     * 依父層寬度設定 canvas 實際解析度
+     * 原本是 600 x 400，比例 = 400 / 600 = 2 / 3
+     */
+    function setupCanvasSize() {
+        var parent = canvas.parentNode;
+        if (!parent) return;
+
+        var width = parent.clientWidth;
+        if (!width) {
+            width = 600; // fallback
+        }
+
+        var ratio = 400 / 600; // 高 / 寬
+
+        canvas.width  = width;
+        canvas.height = Math.round(width * ratio);
+
+        ctx.lineWidth = 2;
+        ctx.lineCap   = 'round';
+        ctx.lineJoin  = 'round';
+    }
+
+    setupCanvasSize();
+    window.addEventListener('resize', setupCanvasSize);
 
     function getPos(e) {
         var rect = canvas.getBoundingClientRect();
+        var clientX, clientY;
+
         if (e.touches && e.touches.length) {
-            return {
-                x: e.touches[0].clientX - rect.left,
-                y: e.touches[0].clientY - rect.top
-            };
+            clientX = e.touches[0].clientX;
+            clientY = e.touches[0].clientY;
+        } else {
+            clientX = e.clientX;
+            clientY = e.clientY;
         }
+
         return {
-            x: e.clientX - rect.left,
-            y: e.clientY - rect.top
+            x: clientX - rect.left,
+            y: clientY - rect.top
         };
     }
 
     function startDraw(e) {
         e.preventDefault();
-        drawing = true;
+        drawing  = true;
         hasDrawn = true;
         var p = getPos(e);
         ctx.beginPath();
@@ -161,9 +190,9 @@ $signature_url = get_post_meta( $contract_id, WOC_Contracts_CPT::META_SIGNATURE_
     canvas.addEventListener('mouseup', endDraw);
     canvas.addEventListener('mouseleave', endDraw);
 
-    canvas.addEventListener('touchstart', startDraw, {passive:false});
-    canvas.addEventListener('touchmove', draw, {passive:false});
-    canvas.addEventListener('touchend', endDraw);
+    canvas.addEventListener('touchstart', startDraw, { passive: false });
+    canvas.addEventListener('touchmove',  draw,      { passive: false });
+    canvas.addEventListener('touchend',   endDraw);
 
     var clearBtn  = document.getElementById('woc-clear-signature');
     var form      = document.getElementById('woc-sign-form');
