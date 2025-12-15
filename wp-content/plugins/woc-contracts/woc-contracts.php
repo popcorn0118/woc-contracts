@@ -20,6 +20,8 @@ define( 'WOC_CONTRACTS_PATH', plugin_dir_path( __FILE__ ) );
 define( 'WOC_CONTRACTS_URL',  plugin_dir_url( __FILE__ ) );
 
 require_once WOC_CONTRACTS_PATH . 'includes/class-woc-contracts-cpt.php';
+require_once WOC_CONTRACTS_PATH . 'includes/class-woc-contracts-admin.php';
+
 
 /**
  * 主插件類別（之後所有功能都掛在這裡）
