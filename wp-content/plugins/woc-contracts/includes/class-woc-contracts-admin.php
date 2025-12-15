@@ -49,7 +49,7 @@ class WOC_Contracts_Admin {
             '合約明細',
             [ __CLASS__, 'render_contract_meta_box' ],
             WOC_Contracts_CPT::POST_TYPE_CONTRACT,
-            'normal',
+            'side',
             'high'
         );
 

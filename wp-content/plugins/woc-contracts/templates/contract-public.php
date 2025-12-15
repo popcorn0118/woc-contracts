@@ -108,6 +108,7 @@ $signature_url = get_post_meta( $contract_id, WOC_Contracts_CPT::META_SIGNATURE_
 
     <?php endif; ?>
 </div>
+<p class="woc-contract-copyright">技術支援 線上合約</p>
 
 <script>
 (function() {

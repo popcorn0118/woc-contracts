@@ -99,10 +99,6 @@ final class WOC_Contracts_Plugin {
         if ( ! current_user_can( 'manage_options' ) ) {
             return;
         }
-
-        echo '<div class="notice notice-info is-dismissible"><p>';
-        echo esc_html__( 'WOC Contracts 外掛已啟用（Phase 0：骨架完成，尚未載入任何合約功能）。', 'woc-contracts' );
-        echo '</p></div>';
     }
 }
 
