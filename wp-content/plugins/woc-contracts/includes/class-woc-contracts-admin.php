@@ -29,6 +29,10 @@ class WOC_Contracts_Admin {
             10,
             2
         );
+
+        // 已簽署合約鎖定邏輯
+        add_filter( 'wp_insert_post_data', [ __CLASS__, 'lock_signed_contract_post_data' ], 10, 2 );
+        add_action( 'admin_notices',       [ __CLASS__, 'show_signed_lock_notice' ] );
     }
 
     /**
@@ -114,12 +118,16 @@ class WOC_Contracts_Admin {
     /**
      * Meta Box HTML：合約範本選擇 + 載入按鈕
      */
+        /**
+     * Meta Box HTML：合約範本選擇 + 載入按鈕
+     */
     public static function render_contract_meta_box( $post ) {
 
         // 目前已選範本
         $current_template_id = get_post_meta( $post->ID, WOC_Contracts_CPT::META_TEMPLATE_ID, true );
+        $status              = get_post_meta( $post->ID, WOC_Contracts_CPT::META_STATUS, true );
 
-        // 取得所有已發布的範本
+        // 取得所有已發布的範本（只有未簽署時才會用到）
         $templates = get_posts( [
             'post_type'      => WOC_Contracts_CPT::POST_TYPE_TEMPLATE,
             'post_status'    => 'publish',
@@ -129,8 +137,30 @@ class WOC_Contracts_Admin {
         ] );
 
         wp_nonce_field( 'woc_contract_meta', 'woc_contract_meta_nonce' );
+
+        // === 若已簽署：只顯示範本名稱，不能再換 ===
+        if ( $status === 'signed' ) : 
+            ?>
+            <p>
+                <strong>合約範本：</strong>
+                <?php
+                if ( $current_template_id ) {
+                    echo esc_html( get_the_title( $current_template_id ) );
+                } else {
+                    echo '—';
+                }
+                ?>
+            </p>
+            <p class="description">
+                此合約已完成簽署，範本資訊僅供檢視，無法再變更。
+                若需更換範本，請先在下方「簽署資訊」清除簽名並重新開放簽署。
+            </p>
+            <?php
+            return;
+        endif;
         ?>
 
+        <!-- 未簽署狀態：顯示原本的下拉 + 按鈕 -->
         <p>
             <label for="woc_template_id"><strong>合約範本</strong></label><br>
             <select name="woc_template_id" id="woc_template_id" style="min-width:260px;">
@@ -159,15 +189,16 @@ class WOC_Contracts_Admin {
         <?php
     }
 
+
     /**
      * 簽署資訊 Meta Box
      */
     public static function render_signature_meta_box( $post ) {
 
-        $status      = get_post_meta( $post->ID, WOC_Contracts_CPT::META_STATUS, true );
-        $img_url     = get_post_meta( $post->ID, WOC_Contracts_CPT::META_SIGNATURE_IMAGE, true );
-        $signed_at   = get_post_meta( $post->ID, WOC_Contracts_CPT::META_SIGNED_AT, true );
-        $signed_ip   = get_post_meta( $post->ID, WOC_Contracts_CPT::META_SIGNED_IP, true );
+        $status    = get_post_meta( $post->ID, WOC_Contracts_CPT::META_STATUS, true );
+        $img_url   = get_post_meta( $post->ID, WOC_Contracts_CPT::META_SIGNATURE_IMAGE, true );
+        $signed_at = get_post_meta( $post->ID, WOC_Contracts_CPT::META_SIGNED_AT, true );
+        $signed_ip = get_post_meta( $post->ID, WOC_Contracts_CPT::META_SIGNED_IP, true );
 
         if ( $status !== 'signed' ) {
             echo '<p>目前尚未簽署。</p>';
@@ -254,6 +285,12 @@ class WOC_Contracts_Admin {
 
         // --- 情境 B：一般儲存（尚未簽署或簽署前的調整）--------------
 
+        // 若已簽署，不再允許修改任何 meta（維持鎖定狀態）
+        $status = get_post_meta( $post_id, WOC_Contracts_CPT::META_STATUS, true );
+        if ( $status === 'signed' ) {
+            return;
+        }
+
         // 1. 儲存範本 ID（允許空值）
         $template_id = isset( $_POST['woc_template_id'] ) ? (int) $_POST['woc_template_id'] : 0;
 
@@ -277,11 +314,16 @@ class WOC_Contracts_Admin {
      */
     public static function enqueue_admin_assets( $hook_suffix ) {
         global $post;
-
+    
         if ( ! isset( $post ) || $post->post_type !== WOC_Contracts_CPT::POST_TYPE_CONTRACT ) {
             return;
         }
-
+    
+        // 狀態：是否已簽署
+        $status   = get_post_meta( $post->ID, WOC_Contracts_CPT::META_STATUS, true );
+        $is_signed = ( $status === 'signed' );
+    
+        // JS
         wp_enqueue_script(
             'woc-contracts-admin',
             WOC_CONTRACTS_URL . 'assets/js/woc-contracts-admin.js',
@@ -289,7 +331,25 @@ class WOC_Contracts_Admin {
             WOC_CONTRACTS_VERSION,
             true
         );
+    
+        // 把狀態丟給 JS 用
+        wp_localize_script(
+            'woc-contracts-admin',
+            'wocContractsAdmin',
+            [
+                'is_signed' => $is_signed,
+            ]
+        );
+    
+        // 專用後台樣式
+        wp_enqueue_style(
+            'woc-contracts-admin',
+            WOC_CONTRACTS_URL . 'assets/css/woc-contracts-admin.css',
+            [],
+            WOC_CONTRACTS_VERSION
+        );
     }
+    
 
     /**
      * AJAX：讀取範本內容
@@ -318,7 +378,6 @@ class WOC_Contracts_Admin {
         $content = $template->post_content;
 
         // 之後要自動帶入日期、公司章…可以在這裡做字串替換
-
         wp_send_json_success( [
             'content' => $content,
         ] );
@@ -406,6 +465,64 @@ class WOC_Contracts_Admin {
                 }
                 break;
         }
+    }
+
+    /**
+     * 已簽署合約：鎖定內容，阻止被修改
+     */
+    public static function lock_signed_contract_post_data( $data, $postarr ) {
+
+        if ( ! isset( $data['post_type'] ) || $data['post_type'] !== WOC_Contracts_CPT::POST_TYPE_CONTRACT ) {
+            return $data;
+        }
+
+        $post_id = isset( $postarr['ID'] ) ? (int) $postarr['ID'] : 0;
+        if ( ! $post_id ) {
+            return $data;
+        }
+
+        $status    = get_post_meta( $post_id, WOC_Contracts_CPT::META_STATUS, true );
+        $signature = get_post_meta( $post_id, WOC_Contracts_CPT::META_SIGNATURE_IMAGE, true );
+
+        if ( $status !== 'signed' || empty( $signature ) ) {
+            return $data;
+        }
+
+        $current = get_post( $post_id );
+        if ( $current && $current->post_type === WOC_Contracts_CPT::POST_TYPE_CONTRACT ) {
+            $data['post_title']   = $current->post_title;
+            $data['post_name']    = $current->post_name;
+            $data['post_content'] = $current->post_content;
+            $data['post_excerpt'] = $current->post_excerpt;
+        }
+
+        return $data;
+    }
+
+    /**
+     * 已簽署合約：在編輯畫面顯示提示訊息
+     */
+    public static function show_signed_lock_notice() {
+        global $pagenow, $post;
+
+        if ( $pagenow !== 'post.php' || ! $post || $post->post_type !== WOC_Contracts_CPT::POST_TYPE_CONTRACT ) {
+            return;
+        }
+
+        $status    = get_post_meta( $post->ID, WOC_Contracts_CPT::META_STATUS, true );
+        $signature = get_post_meta( $post->ID, WOC_Contracts_CPT::META_SIGNATURE_IMAGE, true );
+
+        if ( $status !== 'signed' || empty( $signature ) ) {
+            return;
+        }
+        ?>
+        <div class="notice notice-info">
+            <p>
+                此合約已完成線上簽署，內容已鎖定。
+                若需修改內容，請先在「簽署資訊」區塊按下「清除簽名並重新開放簽署」。
+            </p>
+        </div>
+        <?php
     }
 
 }

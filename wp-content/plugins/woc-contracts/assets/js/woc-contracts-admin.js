@@ -105,4 +105,30 @@ jQuery(function ($) {
         }
     });
 
+    
+    // ========= 已簽署時鎖住內容編輯器 =========
+    if (window.wocContractsAdmin && wocContractsAdmin.is_signed) {
+
+        // Classic Editor textarea – 鎖定內容
+        var $textarea = $('#content');
+        if ($textarea.length) {
+            $textarea.prop('readonly', true);
+        }
+
+        // TinyMCE 編輯器（若有啟用）
+        if (typeof tinymce !== 'undefined') {
+            var editor = tinymce.get('content');
+            if (editor) {
+                editor.setMode('readonly');
+            }
+        }
+
+        // 給外層一個狀態 class，讓 CSS 控制樣式
+        $('#postdivrich').addClass('is_signed');
+    }
+
+    
+
+    
+
 });

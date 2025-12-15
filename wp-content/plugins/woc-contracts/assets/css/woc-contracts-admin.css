@@ -1,0 +1,24 @@
+/* 線上合約：已簽署時的編輯器狀態 */
+
+/* 編輯區+工具列也一起變淡，視覺上一看就知道不能改 */
+#postdivrich.is_signed,
+#postdivrich.is_signed .wp-editor-tools,
+#postdivrich.is_signed .wp-editor-tabs {
+    background: #f8f8f8;
+    opacity: 0.75;
+}
+
+/* textarea 模式 */
+#postdivrich.is_signed .wp-editor-area {
+    background: #f8f8f8;
+}
+
+/* 禁止滑鼠互動（選擇、點擊），只保留捲動 */
+#postdivrich.is_signed * {
+    pointer-events: none;
+}
+
+/* 但讓整個區塊本身可以捲動 */
+#postdivrich.is_signed {
+    pointer-events: auto;
+}
