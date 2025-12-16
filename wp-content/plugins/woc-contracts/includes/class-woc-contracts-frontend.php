@@ -115,11 +115,12 @@ class WOC_Contracts_Frontend {
         }
 
         $base64 = substr( $data_url, strpos( $data_url, ',' ) + 1 );
-        $binary = base64_decode( $base64 );
+        $binary = base64_decode( $base64, true );
 
-        if ( ! $binary ) {
+        if ( $binary === false ) {
             wp_die( '簽名資料無法解析。', '簽名錯誤', 400 );
         }
+
 
         // 上傳目錄
         $upload = wp_upload_dir();
@@ -148,6 +149,14 @@ class WOC_Contracts_Frontend {
 
         $ip = isset( $_SERVER['REMOTE_ADDR'] ) ? sanitize_text_field( wp_unslash( $_SERVER['REMOTE_ADDR'] ) ) : '';
         update_post_meta( $contract_id, WOC_Contracts_CPT::META_SIGNED_IP, $ip );
+
+        $message = '客戶使用以下方式在線上簽訂合約';
+        if ( $ip ) {
+            $message .= ' ' . $ip;
+        }
+
+        WOC_Contracts_CPT::add_audit_log( $contract_id, $message );
+
 
         // 目前保留 token，保留檢視用；之後若要「簽完立即失效」再改成刪除 token。
         // delete_post_meta( $contract_id, WOC_Contracts_CPT::META_VIEW_TOKEN );

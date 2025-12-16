@@ -17,10 +17,12 @@ class WOC_Contracts_CPT {
     const META_SIGNED_AT       = '_woc_signed_at';
     const META_SIGNED_IP       = '_woc_signed_ip';
     const META_SIGNATURE_IMAGE = '_woc_signature_image';
-    const META_SNAPSHOT_FILE   = '_woc_snapshot_file';
-    const META_SNAPSHOT_HASH   = '_woc_snapshot_hash';
-    const META_CLIENT_NAME     = '_woc_client_name';
-    const META_CLIENT_PHONE    = '_woc_client_phone';
+    // const META_SNAPSHOT_FILE   = '_woc_snapshot_file';
+    // const META_SNAPSHOT_HASH   = '_woc_snapshot_hash';
+    // const META_CLIENT_NAME     = '_woc_client_name';
+    // const META_CLIENT_PHONE    = '_woc_client_phone';
+    const META_AUDIT_LOG       = '_woc_audit_log';
+
 
     /**
      * 掛 hook
@@ -64,7 +66,6 @@ class WOC_Contracts_CPT {
                 'menu_position'   => 25,
                 'menu_icon'       => 'dashicons-media-text',
                 'supports'        => [ 'title', 'editor' ],
-                'has_archive'     => false,
                 'rewrite'         => [
                     'slug'       => 'contract',
                     'with_front' => false,
@@ -120,6 +121,38 @@ class WOC_Contracts_CPT {
             $submenu_slug         // 導向的頁面 slug
         );
     }
+
+    /**
+     * 後台紀錄 操作紀錄log
+     */
+    public static function add_audit_log( $contract_id, $message ) {
+        $contract_id = (int) $contract_id;
+        $message     = trim( (string) $message );
+    
+        if ( ! $contract_id || $message === '' ) {
+            return;
+        }
+    
+        $logs = get_post_meta( $contract_id, self::META_AUDIT_LOG, true );
+        if ( ! is_array( $logs ) ) {
+            $logs = array();
+        }
+    
+        $logs[] = array(
+            'time'    => current_time( 'mysql' ),
+            'message' => $message,
+        );
+
+        // 最多保留 50 筆
+        if ( count( $logs ) > 50 ) {
+            $logs = array_slice( $logs, -50 );
+        }
+    
+        update_post_meta( $contract_id, self::META_AUDIT_LOG, $logs );
+    }
+
+    
+
 }
 
 WOC_Contracts_CPT::init();

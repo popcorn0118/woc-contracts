@@ -33,6 +33,10 @@ class WOC_Contracts_Admin {
         // 已簽署合約鎖定邏輯
         add_filter( 'wp_insert_post_data', [ __CLASS__, 'lock_signed_contract_post_data' ], 10, 2 );
         add_action( 'admin_notices',       [ __CLASS__, 'show_signed_lock_notice' ] );
+
+        //後台紀錄 操作紀錄
+        add_action( 'transition_post_status', [ __CLASS__, 'log_contract_created' ], 10, 3 );
+
     }
 
     /**
@@ -72,6 +76,18 @@ class WOC_Contracts_Admin {
             'side',
             'high'
         );
+
+        // 操作紀錄
+        add_meta_box(
+            'woc-contract-audit-log',
+            __( '操作紀錄', 'woc-contracts' ),
+            [ __CLASS__, 'render_audit_log_meta_box' ],
+            WOC_Contracts_CPT::POST_TYPE_CONTRACT,
+            'normal',
+            'default'
+        );
+
+        
     }
 
     /**
@@ -118,9 +134,7 @@ class WOC_Contracts_Admin {
     /**
      * Meta Box HTML：合約範本選擇 + 載入按鈕
      */
-        /**
-     * Meta Box HTML：合約範本選擇 + 載入按鈕
-     */
+
     public static function render_contract_meta_box( $post ) {
 
         // 目前已選範本
@@ -280,6 +294,15 @@ class WOC_Contracts_Admin {
             $new_token = wp_generate_password( 32, false, false );
             update_post_meta( $post_id, WOC_Contracts_CPT::META_VIEW_TOKEN, $new_token );
 
+            // === 寫入「誰清除簽名」的操作紀錄 ===
+            $user = wp_get_current_user();
+            $name = ( $user && $user->ID ) ? $user->user_login : 'unknown';
+
+            WOC_Contracts_CPT::add_audit_log(
+                $post_id,
+                '簽名已由 ' . $name . ' 清除，合約重新開放簽署'
+            );
+
             return;
         }
 
@@ -360,6 +383,12 @@ class WOC_Contracts_Admin {
 
         $template_id = isset( $_POST['template_id'] ) ? (int) $_POST['template_id'] : 0;
         $post_id     = isset( $_POST['post_id'] ) ? (int) $_POST['post_id'] : 0;
+
+        // 多檢查一次這個 post 是不是合約 CPT
+        $post = get_post( $post_id );
+        if ( ! $post || $post->post_type !== WOC_Contracts_CPT::POST_TYPE_CONTRACT ) {
+            wp_send_json_error( [ 'message' => '合約不存在。' ] );
+        }
 
         if ( ! current_user_can( 'edit_post', $post_id ) ) {
             wp_send_json_error( [ 'message' => '權限不足。' ] );
@@ -524,6 +553,80 @@ class WOC_Contracts_Admin {
         </div>
         <?php
     }
+
+    public static function log_contract_created( $new_status, $old_status, $post ) {
+        if ( $post->post_type !== WOC_Contracts_CPT::POST_TYPE_CONTRACT ) {
+            return;
+        }
+    
+        // 只在第一次從「非 publish」→「publish」時記錄
+        if ( $old_status === 'publish' || $new_status !== 'publish' ) {
+            return;
+        }
+    
+        // 避免重複記錄：看有沒有已經存在「創建」這種開頭
+        $logs = get_post_meta( $post->ID, WOC_Contracts_CPT::META_AUDIT_LOG, true );
+        if ( is_array( $logs ) ) {
+            foreach ( $logs as $row ) {
+                if ( ! empty( $row['message'] ) && strpos( $row['message'], '合約創建人' ) === 0 ) {
+                    return;
+                }
+            }
+        }
+    
+        $user = wp_get_current_user();
+        $name = $user && $user->ID ? $user->user_login : 'unknown';
+    
+        WOC_Contracts_CPT::add_audit_log(
+            $post->ID,
+            '合約創建人 ' . $name
+        );
+    }
+
+    /**
+     * 操作紀錄：顯示合約操作紀錄
+     */
+    public static function render_audit_log_meta_box( $post ) {
+
+        // 取出 log 陣列
+        $logs = get_post_meta( $post->ID, WOC_Contracts_CPT::META_AUDIT_LOG, true );
+
+        if ( ! is_array( $logs ) || empty( $logs ) ) {
+            echo '<p>目前尚無紀錄。</p>';
+            return;
+        }
+
+        // 新的在上面看起來比較直覺
+        $logs = array_reverse( $logs );
+        ?>
+        <div class="woc-audit-log-wrap">
+            <ul class="woc-audit-log-list">
+                <?php foreach ( $logs as $row ) :
+
+                    $raw_time = isset( $row['time'] ) ? $row['time'] : '';
+                    $message  = isset( $row['message'] ) ? $row['message'] : '';
+
+                    if ( $raw_time ) {
+                        $ts = strtotime( $raw_time );
+                        $time_str = $ts ? date_i18n( 'Y-m-d H:i:s', $ts ) : $raw_time;
+                    } else {
+                        $time_str = '';
+                    }
+                    ?>
+                    <li>
+                        <span class="woc-log-time"><?php echo esc_html( $time_str ); ?></span>
+                        <?php if ( $message !== '' ) : ?>
+                            ，<span class="woc-log-message"><?php echo esc_html( $message ); ?></span>
+                        <?php endif; ?>
+                    </li>
+                <?php endforeach; ?>
+            </ul>
+        </div>
+        <?php
+    }
+
+
+    
 
 }
 
