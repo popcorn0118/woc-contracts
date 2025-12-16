@@ -459,9 +459,9 @@ class WOC_Contracts_Admin {
             case 'woc_signed':
                 $status = get_post_meta( $post_id, WOC_Contracts_CPT::META_STATUS, true );
                 if ( $status === 'signed' ) {
-                    echo '<span style="color:#0a0;font-weight:bold;">已簽約</span>';
+                    echo '<span class="signed">已簽約</span>';
                 } else {
-                    echo '<span style="color:#a00;">未簽約</span>';
+                    echo '<span class="unsigned">未簽約</span>';
                 }
                 break;
         }

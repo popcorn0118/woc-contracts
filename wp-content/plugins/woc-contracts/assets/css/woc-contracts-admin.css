@@ -22,3 +22,16 @@
 #postdivrich.is_signed {
     pointer-events: auto;
 }
+
+/* 後台列表"是否簽署"欄位 */
+.woc_signed .signed, .woc_signed .unsigned {
+    color: #fff;
+    padding: 5px 10px;
+    border-radius: 5px;
+}
+.woc_signed .signed {
+    background-color: green;
+}
+.woc_signed .unsigned {
+    background-color:#939393;
+}
