@@ -12,6 +12,7 @@ class WOC_Contracts_Admin {
         add_action( 'add_meta_boxes',        [ __CLASS__, 'add_meta_boxes' ] );
         add_action( 'save_post',             [ __CLASS__, 'save_contract_meta' ], 10, 2 );
         add_action( 'admin_enqueue_scripts', [ __CLASS__, 'enqueue_admin_assets' ] );
+        add_filter( 'mce_css', [ __CLASS__, 'filter_mce_css' ] );
         add_action( 'wp_ajax_woc_load_template', [ __CLASS__, 'ajax_load_template' ] );
 
         // 後台 UI 相關 filter
@@ -376,6 +377,36 @@ class WOC_Contracts_Admin {
             WOC_CONTRACTS_VERSION
         );
     }
+
+    /**
+     * TinyMCE iframe 內載入 editor CSS（讓編輯器內容吃得到）
+     */
+    public static function filter_mce_css( $mce_css ) {
+
+        // 只針對「合約 / 範本」編輯頁
+        $screen = function_exists( 'get_current_screen' ) ? get_current_screen() : null;
+        if ( ! $screen || $screen->base !== 'post' ) {
+            return $mce_css;
+        }
+
+        $allowed = [
+            WOC_Contracts_CPT::POST_TYPE_CONTRACT,
+            WOC_Contracts_CPT::POST_TYPE_TEMPLATE,
+        ];
+
+        if ( empty( $screen->post_type ) || ! in_array( $screen->post_type, $allowed, true ) ) {
+            return $mce_css;
+        }
+
+        $css = WOC_CONTRACTS_URL . 'assets/css/woc-editor.css';
+
+        if ( ! empty( $mce_css ) ) {
+            $mce_css .= ',';
+        }
+
+        return $mce_css . $css;
+    }
+
     
 
     /**

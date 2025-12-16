@@ -1,0 +1,72 @@
+/* 編輯器內容樣式專用 */
+
+.c_t_center {
+    text-align: center;
+}
+.c_bg_gral {
+  background-color: #efefef !important;
+}
+.contract-container {
+  font-size: 16px;
+  line-height: 32px;
+}
+.c_title {
+  text-align: center;
+  margin-bottom: 15px;
+  font-weight: 900;
+}
+.c_cont1 {
+  font-size: 16px;
+  line-height: 32px;
+}
+.c_cont2 {
+  font-size: 16px;
+  line-height: 32px;
+  list-style: cjk-ideographic;
+  padding-left: 23px;
+}
+.c_cont3 {
+  font-size: 16px;
+  line-height: 32px;
+  list-style: none;
+  padding: 3%;
+}
+.c_into {
+  list-style-type: disc;
+  list-style: none;
+  font-size: 16px;
+  width: 50%;
+  float: left;
+  margin: 30px 0;
+  padding: 0 20px;
+}
+.c_date {
+  float: left;
+  width: 100%;
+  text-align: center;
+  margin-bottom: 20px;
+  font-size: 22px;
+  position: relative;
+}
+.c_cont_chack{
+  display: block;
+  line-height: 1.6em;
+}
+.c_cont_b-line{
+  text-decoration: underline;
+}
+.fz-s {
+  
+}
+
+.seal-img {
+  width: 150px !important;
+  position: absolute;
+  right: 20px;
+  bottom: 150px;
+}
+@media (max-width: 767px) {
+  .c_into {
+    width: 100%;
+  }
+}
