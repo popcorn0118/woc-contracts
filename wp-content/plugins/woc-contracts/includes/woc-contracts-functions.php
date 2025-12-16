@@ -5,7 +5,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 /**
  * 取得全站合約變數的「搜尋字串 => 取代值」對照表
- * 例： [ '{company_name}' => '爆米花工作室', '{company_address}' => '高雄市…' ]
+ * 例： [ '{company_name}' => 'OO有限公司', '{company_address}' => '高雄市…' ]
  */
 function woc_get_global_var_pairs() {
 
@@ -37,6 +37,13 @@ function woc_get_global_var_pairs() {
 
         $pairs[ '{' . $key . '}' ] = $value;
     }
+
+    // ===== 固定系統變數（寫死，不存 options）=====
+    // 使用網站時區（current_time），避免吃到伺服器時區
+    $ts = current_time( 'timestamp' );
+    $pairs['{current_year}']  = date_i18n( 'Y', $ts );
+    $pairs['{current_month}'] = date_i18n( 'm', $ts );
+    $pairs['{current_day}']   = date_i18n( 'd', $ts );
 
     return $pairs;
 }

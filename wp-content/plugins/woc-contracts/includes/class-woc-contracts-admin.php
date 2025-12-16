@@ -809,7 +809,13 @@ class WOC_Contracts_Admin {
      */
     public static function render_vars_helper_meta_box( $post ) {
 
-        $vars = get_option( 'woc_contract_global_vars', [] );
+        $vars  = get_option( 'woc_contract_global_vars', [] );
+        $fixed = WOC_Contracts_CPT::get_fixed_vars();
+
+        // 統一成同一種結構：key => [label,value]
+        if ( ! is_array( $vars ) ) $vars = [];
+        $vars = $vars + $fixed; // 注意：固定碼不覆蓋使用者（而且你已禁止存入保留碼）
+        
         if ( ! is_array( $vars ) || empty( $vars ) ) {
             echo '<p>目前尚未設定任何合約變數。</p>';
             return;

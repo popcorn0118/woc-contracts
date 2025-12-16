@@ -22,6 +22,9 @@ class WOC_Contracts_CPT {
     // const META_CLIENT_NAME     = '_woc_client_name';
     // const META_CLIENT_PHONE    = '_woc_client_phone';
     const META_AUDIT_LOG       = '_woc_audit_log';
+    const FIXED_VAR_YEAR  = 'current_year';
+    const FIXED_VAR_MONTH = 'current_month';
+    const FIXED_VAR_DAY   = 'current_day';
 
 
     /**
@@ -173,6 +176,11 @@ class WOC_Contracts_CPT {
                     continue;
                 }
 
+                // 禁止覆蓋固定系統變數
+                if ( in_array( $key, self::get_reserved_var_keys(), true ) ) {
+                    continue;
+                }
+
                 $vars[ $key ] = [
                     'label' => sanitize_text_field( $label ),
                     'value' => wp_kses_post( $value ),
@@ -190,6 +198,8 @@ class WOC_Contracts_CPT {
             $vars = [];
         }
 
+        $fixed_vars = self::get_fixed_vars();
+
         ?>
         <div class="wrap">
             <h1>合約變數</h1>
@@ -199,6 +209,27 @@ class WOC_Contracts_CPT {
                 在合約範本或合約內容中，可用 <code>{變數代碼}</code> 插入，例如：
                 <code>{company_name}</code>、<code>{company_address}</code>。
             </p>
+
+            <h2 style="margin-top:20px;">固定系統變數（不可編輯）</h2>
+            <table class="widefat striped">
+                <thead>
+                    <tr>
+                        <th style="width:20%;">識別文字</th>
+                        <th style="width:25%;">變數代碼</th>
+                        <th>目前值（依網站時區）</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <?php foreach ( $fixed_vars as $k => $row ) : ?>
+                        <tr>
+                            <td><?php echo esc_html( $row['label'] ); ?></td>
+                            <td><code>{<?php echo esc_html( $k ); ?>}</code></td>
+                            <td><?php echo esc_html( $row['value'] ); ?></td>
+                        </tr>
+                    <?php endforeach; ?>
+                </tbody>
+            </table>
+
 
             <form method="post">
                 <?php wp_nonce_field( 'woc_save_vars', 'woc_vars_nonce' ); ?>
@@ -303,6 +334,35 @@ class WOC_Contracts_CPT {
         <?php
     }
 
+
+    /**
+     * 固定變數定義（label + value）
+     */
+    public static function get_fixed_vars() {
+        $ts = current_time( 'timestamp' );
+
+        return [
+            self::FIXED_VAR_YEAR => [
+                'label' => '當前年分',
+                'value' => date_i18n( 'Y', $ts ),
+            ],
+            self::FIXED_VAR_MONTH => [
+                'label' => '當前月份',
+                'value' => date_i18n( 'm', $ts ),
+            ],
+            self::FIXED_VAR_DAY => [
+                'label' => '當前日',
+                'value' => date_i18n( 'd', $ts ),
+            ],
+        ];
+    }
+
+    /**
+     * 固定變數保留碼清單
+     */
+    public static function get_reserved_var_keys() {
+        return [ self::FIXED_VAR_YEAR, self::FIXED_VAR_MONTH, self::FIXED_VAR_DAY ];
+    }
 
 
     /**
