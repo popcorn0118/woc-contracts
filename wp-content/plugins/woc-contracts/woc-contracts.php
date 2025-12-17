@@ -40,11 +40,12 @@ if ( ! defined( 'WOC_CONTRACTS_URL' ) ) {
 require_once WOC_CONTRACTS_PATH . 'includes/class-woc-contracts-cpt.php';
 require_once WOC_CONTRACTS_PATH . 'includes/woc-contracts-functions.php';
 
-// 2. 後台 / 前台
+// 一律載入：因為 admin-post.php 也需要處理簽署
+require_once WOC_CONTRACTS_PATH . 'includes/class-woc-contracts-frontend.php';
+
+// 後台才需要的再載
 if ( is_admin() ) {
     require_once WOC_CONTRACTS_PATH . 'includes/class-woc-contracts-admin.php';
-} else {
-    require_once WOC_CONTRACTS_PATH . 'includes/class-woc-contracts-frontend.php';
 }
 
 

@@ -21,6 +21,17 @@ $signed_ip     = get_post_meta( $contract_id, WOC_Contracts_CPT::META_SIGNED_IP,
 $signature_url = get_post_meta( $contract_id, WOC_Contracts_CPT::META_SIGNATURE_IMAGE, true );
 ?>
 
+<?php
+$err = isset( $_GET['err'] ) ? sanitize_key( wp_unslash( $_GET['err'] ) ) : '';
+?>
+
+<?php if ( $valid && $err === 'nonce' ) : ?>
+    <div style="padding:10px;border:1px solid #d63638;background:#fff5f5;margin:15px 0;">
+        頁面逾時或被快取影響，請重新整理後再簽名。
+    </div>
+<?php endif; ?>
+
+
 <div class="woc-contract-wrap">
     <?php if ( ! $valid ) : ?>
 
