@@ -57,73 +57,74 @@ $err = isset( $_GET['err'] ) ? sanitize_key( wp_unslash( $_GET['err'] ) ) : '';
             ?>
         </div>
 
-        <?php if ( $is_signed ) : ?>
+        <div class="woc-contract-signed">
 
-            <hr style="margin:40px 0;">
+            <?php if ( $is_signed ) : ?>
 
-            <h2 style="font-size:20px;margin-bottom:15px;">簽署資訊</h2>
+                <h2 style="font-size:20px;margin-bottom:15px;">簽署資訊</h2>
 
-            <?php if ( $signature_url ) : ?>
-                <p>簽名：</p>
-                <div class="woc-signature-image-box">
-                    <img src="<?php echo esc_url( $signature_url ); ?>" alt="Signature" class="woc-signature-image">
+                <?php if ( $signature_url ) : ?>
+                    <p>簽名：</p>
+                    <div class="woc-signature-image-box">
+                        <img src="<?php echo esc_url( $signature_url ); ?>" alt="Signature" class="woc-signature-image">
+                    </div>
+                <?php endif; ?>
+
+                <?php if ( $signed_at ) : ?>
+                    <p>已簽約時間：<?php echo esc_html( $signed_at ); ?></p>
+                <?php endif; ?>
+
+                <?php if ( $signed_ip ) : ?>
+                    <p>簽署 IP：<?php echo esc_html( $signed_ip ); ?></p>
+                <?php endif; ?>
+
+                <p style="margin-top:15px;">此合約已完成簽署，內容僅供檢視與列印。</p>
+
+                <p style="margin-top:20px;">
+                    <button type="button" onclick="window.print();"
+                            style="padding:8px 18px;border:1px solid #333;background:#333;color:#fff;cursor:pointer;">
+                        列印合約
+                    </button>
+                </p>
+
+                <?php else : ?>
+
+                <h2 style="font-size:20px;margin-bottom:10px;">簽名</h2>
+                <p style="margin-bottom:10px;">請使用手寫筆或滑鼠或手指簽名以授權此合約。通過電子簽名此文檔，表示您同意上面建立的條款。文檔簽名後，您可以列印保存。</p>
+
+                <div>
+                    <!-- 拿掉固定 width/height，交給 JS 依容器寬度設定 -->
+                    <canvas id="woc-signature-pad"></canvas>
                 </div>
+
+                <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>"
+                    id="woc-sign-form" style="margin-top:15px;">
+
+                    <input type="hidden" name="action" value="woc_sign_contract">
+                    <input type="hidden" name="woc_contract_id" value="<?php echo esc_attr( $contract_id ); ?>">
+                    <input type="hidden" name="woc_token" value="<?php echo esc_attr( $given_token ); ?>">
+                    <input type="hidden" name="woc_signature_data" id="woc_signature_data" value="">
+                    <?php wp_nonce_field( 'woc_sign_contract_' . $contract_id, 'woc_sign_nonce' ); ?>
+
+                    <button type="button" id="woc-clear-signature"
+                            style="padding:6px 14px;margin-right:10px;border:1px solid #777;background:#f5f5f5;cursor:pointer;">
+                        清除簽名
+                    </button>
+
+                    <button type="submit" id="woc-submit-signature"
+                            style="padding:6px 18px;border:1px solid #0073aa;background:#0073aa;color:#fff;cursor:pointer;">
+                        送出簽名
+                    </button>
+                </form>
+
+                <p style="margin-top:10px;font-size:12px;color:#666;">
+                    送出後合約內容將鎖定，如需修改請聯絡承辦人員重新建立合約。
+                </p>
+
             <?php endif; ?>
-
-            <?php if ( $signed_at ) : ?>
-                <p>已簽約時間：<?php echo esc_html( $signed_at ); ?></p>
-            <?php endif; ?>
-
-            <?php if ( $signed_ip ) : ?>
-                <p>簽署 IP：<?php echo esc_html( $signed_ip ); ?></p>
-            <?php endif; ?>
-
-            <p style="margin-top:15px;">此合約已完成簽署，內容僅供檢視與列印。</p>
-
-            <p style="margin-top:20px;">
-                <button type="button" onclick="window.print();"
-                        style="padding:8px 18px;border:1px solid #333;background:#333;color:#fff;cursor:pointer;">
-                    列印合約
-                </button>
-            </p>
-
-        <?php else : ?>
-
-            <hr style="margin:40px 0 20px;">
-
-            <h2 style="font-size:20px;margin-bottom:10px;">簽名</h2>
-            <p style="margin-bottom:10px;">請使用手寫筆或滑鼠或手指簽名以授權此合約。通過電子簽名此文檔，表示您同意上面建立的條款。文檔簽名後，您可以列印保存。</p>
-
-            <div>
-                <!-- 拿掉固定 width/height，交給 JS 依容器寬度設定 -->
-                <canvas id="woc-signature-pad"></canvas>
-            </div>
-
-            <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>"
-                  id="woc-sign-form" style="margin-top:15px;">
-
-                <input type="hidden" name="action" value="woc_sign_contract">
-                <input type="hidden" name="woc_contract_id" value="<?php echo esc_attr( $contract_id ); ?>">
-                <input type="hidden" name="woc_token" value="<?php echo esc_attr( $given_token ); ?>">
-                <input type="hidden" name="woc_signature_data" id="woc_signature_data" value="">
-                <?php wp_nonce_field( 'woc_sign_contract_' . $contract_id, 'woc_sign_nonce' ); ?>
-
-                <button type="button" id="woc-clear-signature"
-                        style="padding:6px 14px;margin-right:10px;border:1px solid #777;background:#f5f5f5;cursor:pointer;">
-                    清除簽名
-                </button>
-
-                <button type="submit" id="woc-submit-signature"
-                        style="padding:6px 18px;border:1px solid #0073aa;background:#0073aa;color:#fff;cursor:pointer;">
-                    送出簽名
-                </button>
-            </form>
-
-            <p style="margin-top:10px;font-size:12px;color:#666;">
-                送出後合約內容將鎖定，如需修改請聯絡承辦人員重新建立合約。
-            </p>
-
-        <?php endif; ?>
+            
+        </div>
+        
 
     <?php endif; ?>
 </div>

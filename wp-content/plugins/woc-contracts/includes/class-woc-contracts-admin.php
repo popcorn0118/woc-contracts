@@ -41,6 +41,8 @@ class WOC_Contracts_Admin {
         // 發布區塊下方顯示可用變數
         add_action( 'add_meta_boxes', [ __CLASS__, 'add_vars_helper_meta_box' ] );
 
+        // TinyMCE：避免自動重排 HTML（偏向保留 <br>）
+        add_filter( 'tiny_mce_before_init', [ __CLASS__, 'filter_tiny_mce_before_init' ], 99 );
     }
 
     /**
@@ -405,6 +407,48 @@ class WOC_Contracts_Admin {
         }
 
         return $mce_css . $css;
+    }
+
+    /**
+     * TinyMCE：避免自動重排 HTML（偏向保留 <br>）
+     */
+    public static function filter_tiny_mce_before_init( $init ) {
+
+        $screen = function_exists( 'get_current_screen' ) ? get_current_screen() : null;
+        if ( ! $screen || $screen->base !== 'post' ) return $init;
+
+        $allowed = [
+            WOC_Contracts_CPT::POST_TYPE_CONTRACT,
+            WOC_Contracts_CPT::POST_TYPE_TEMPLATE,
+        ];
+        if ( empty( $screen->post_type ) || ! in_array( $screen->post_type, $allowed, true ) ) return $init;
+
+        // 核心：不要自動包 p、不要把換行吃掉、偏向保留 <br>
+        // - wpautop: 關掉自動 <p> / <br> 轉換
+        $init['wpautop'] = false;
+
+        // - forced_root_block: 禁止自動外包 <p>
+        $init['forced_root_block'] = false;
+
+        // - force_br_newlines / force_p_newlines: 偏向以 <br> 表示換行，不強制換成 <p>
+        $init['force_br_newlines'] = true;
+        $init['force_p_newlines']  = false;
+
+        // - remove_linebreaks: 不要把換行移除
+        $init['remove_linebreaks'] = false;
+
+        // 讓 TinyMCE 少管閒事（降低它「修 HTML」的衝動）
+        // - verify_html: 關掉額外驗證/清理
+        $init['verify_html'] = false;
+
+        // - entity_encoding: 保留原始字元（降低被轉成 &nbsp; 之類的機率）
+        $init['entity_encoding'] = 'raw';
+
+        // 明確允許你會用到的標籤（至少把 br 放進去）
+        $init['extended_valid_elements'] =
+            'br,span[*],p[*],h1[*],h2[*],h3[*],h4[*],h5[*],h6[*],ul[*],ol[*],li[*],a[*],strong,em';
+
+        return $init;
     }
 
     
@@ -852,6 +896,7 @@ class WOC_Contracts_Admin {
 
 
     
+
 
 
     

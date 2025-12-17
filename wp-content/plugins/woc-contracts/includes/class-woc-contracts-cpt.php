@@ -59,11 +59,11 @@ class WOC_Contracts_CPT {
                     'not_found_in_trash' => '資源回收筒中沒有合約',
                     'menu_name'          => '線上合約',
                 ],
+                // 'show_in_rest'  => true,   // ✅ 開 Gutenberg
                 'public'              => true, //post type 不是只有後台在用，我也要前台網址。
                 'publicly_queryable'  => true, //表示這個 CPT 可以被前台 query 到，也就是 /contract/12/ 這種 URL 會被當成「合法的單篇頁」。
                 'exclude_from_search' => true,  // 雖然可以用 URL 直接看這篇合約，但它 不會出現在站內搜尋結果，這樣合約就不會被一般訪客「搜尋挖出來」。
                 'has_archive'         => false, //不建立 /contract/ 這種「合約列表頁」的 archive，避免有人用列表方式掃所有合約
-                
                 'show_ui'         => true,
                 'show_in_menu'    => true,
                 'menu_position'   => 25,
@@ -95,6 +95,7 @@ class WOC_Contracts_CPT {
                     'not_found_in_trash' => '資源回收筒中沒有範本',
                     'menu_name'          => '合約範本',
                 ],
+                // 'show_in_rest'  => true,   // ✅ 開 Gutenberg
                 'public'          => false,
                 'show_ui'         => true,
                 'show_in_menu'    => false,              // 選單待會手動掛

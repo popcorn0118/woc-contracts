@@ -11,11 +11,16 @@
     padding:30px;
     background:#fff;
     margin-bottom: 0px !important;
+    display: flex;
+    flex-direction: column;
 }
 .woc-contract-content {
     color: #000;
     font-size:16px;
     line-height:1.8;
+}
+.woc-contract-signed {
+  
 }
 
 /* 合約內容 */
