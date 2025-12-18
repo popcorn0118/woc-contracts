@@ -135,6 +135,7 @@ $err = isset( $_GET['err'] ) ? sanitize_key( wp_unslash( $_GET['err'] ) ) : '';
     var ctx       = canvas.getContext('2d');
     var drawing   = false;
     var hasDrawn  = false;
+    var scaleX = 1;
 
     // 固定輸出解析度（檔案一律 820px 寬）
     var BASE_WIDTH  = 820;

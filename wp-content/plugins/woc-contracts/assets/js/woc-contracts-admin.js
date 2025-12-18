@@ -112,14 +112,14 @@ jQuery(function ($) {
   
 
     // 開啟連結
-    $('#woc-open-link-btn').on('click', function (e) {
-        e.preventDefault();
+    // $('#woc-open-link-btn').on('click', function (e) {
+    //     e.preventDefault();
 
-        var link = $(this).data('link');
-        if (link) {
-            window.open(link, '_blank');
-        }
-    });
+    //     var link = $(this).data('link');
+    //     if (link) {
+    //         window.open(link, '_blank');
+    //     }
+    // });
 
     
     // ========= 已簽署時鎖住內容編輯器 =========

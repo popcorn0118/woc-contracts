@@ -118,6 +118,7 @@ class WOC_Contracts_Admin {
         <p>將此連結傳給客戶，即可線上檢視並簽署此合約。</p>
         <p>
             <input type="text"
+                id="woc-contract-link-url"
                 readonly
                 class="widefat"
                 value="<?php echo esc_attr( $url ); ?>"
@@ -342,16 +343,33 @@ class WOC_Contracts_Admin {
      * 後台載入 JS、CSS
      */
     public static function enqueue_admin_assets( $hook_suffix ) {
-        global $post;
+
+        if ( ! function_exists( 'get_current_screen' ) ) {
+            return;
+        }
     
-        // 只在「線上合約」編輯畫面
-        // if ( ! isset( $post ) || $post->post_type !== WOC_Contracts_CPT::POST_TYPE_CONTRACT ) {
-        //     return;
-        // }
+        $screen = get_current_screen();
+        if ( ! $screen ) {
+            return;
+        }
     
-        // 狀態：是否已簽署
-        $status   = get_post_meta( $post->ID, WOC_Contracts_CPT::META_STATUS, true );
-        $is_signed = ( $status === 'signed' );
+        // 只在：
+        // - 合約/範本 編輯頁（post.php / post-new.php）
+        // - 合約列表頁（edit.php?post_type=woc_contract）
+        $allowed = [
+            'post' => [ WOC_Contracts_CPT::POST_TYPE_CONTRACT, WOC_Contracts_CPT::POST_TYPE_TEMPLATE ],
+            'edit' => [ WOC_Contracts_CPT::POST_TYPE_CONTRACT ],
+        ];
+    
+        $base = $screen->base;         // post / edit / ...
+        $pt   = $screen->post_type ?? '';
+    
+        if (
+            ! isset( $allowed[ $base ] ) ||
+            ! in_array( $pt, $allowed[ $base ], true )
+        ) {
+            return;
+        }
     
         // JS
         wp_enqueue_script(
@@ -362,7 +380,16 @@ class WOC_Contracts_Admin {
             true
         );
     
-        // 把狀態丟給 JS 用
+        // 只有在「合約編輯頁」才需要 is_signed
+        $is_signed = false;
+        if ( $base === 'post' && $pt === WOC_Contracts_CPT::POST_TYPE_CONTRACT ) {
+            $post_id = isset( $_GET['post'] ) ? (int) $_GET['post'] : 0;
+            if ( $post_id ) {
+                $status   = get_post_meta( $post_id, WOC_Contracts_CPT::META_STATUS, true );
+                $is_signed = ( $status === 'signed' );
+            }
+        }
+    
         wp_localize_script(
             'woc-contracts-admin',
             'wocContractsAdmin',
@@ -371,7 +398,7 @@ class WOC_Contracts_Admin {
             ]
         );
     
-        // 專用後台樣式
+        // CSS
         wp_enqueue_style(
             'woc-contracts-admin',
             WOC_CONTRACTS_URL . 'assets/css/woc-contracts-admin.css',
@@ -379,6 +406,7 @@ class WOC_Contracts_Admin {
             WOC_CONTRACTS_VERSION
         );
     }
+    
 
     /**
      * TinyMCE iframe 內載入 editor CSS（讓編輯器內容吃得到）
