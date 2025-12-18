@@ -4,23 +4,68 @@
     display: flex;
     flex-direction: column;
 }
-
+@media (max-width: 580px) {
+  #content .ast-container {
+    padding: 0 !important;
+  }
+}
 .woc-contract-wrap {
-    max-width:980px;
+    width: 1000px;
+    max-width: 100%;
     margin:40px auto;
-    padding:30px;
+    padding:29px;
     background:#fff;
     margin-bottom: 0px !important;
     display: flex;
     flex-direction: column;
-}
-.woc-contract-content {
-    color: #000;
     font-size:16px;
-    line-height:1.8;
-}
-.woc-contract-signed {
+  }
+  @media (max-width: 580px) {
+    .woc-contract-wrap {
+      margin: 0;
+      padding:25px;
+    }
+  }
   
+
+.woc-contract-wrap * {
+  font-family: 'PingFang TC','Helvetica Neue','Microsoft YaHei New','STHeiti Light',sans-serif;
+  line-height: 2;
+  color: #000;
+  
+}
+
+.woc-contract-content :where(ul, ol), .woc-contract-content p { 
+  margin: 0;
+ }
+
+.woc-contract-signed {
+  margin-top: 10px;
+  color: #000;
+  font-size: 16px;
+}
+.woc-contract-signed p {
+  margin-bottom: 5px;
+  font-weight: 500;
+}
+.woc-button-warp {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+}
+.woc-button-warp button {
+  border-radius: 0;
+  padding: 20px 30px;
+  color: #fff;
+}
+.woc-button-warp button:hover {
+  opacity: 0.7;
+}
+#woc-clear-signature {
+  background-color: gray;
+}
+#woc-submit-signature, #woc-print {
+  background-color: #0274be;
 }
 
 /* 合約內容 */
@@ -72,7 +117,6 @@
 }
 .contract-container {
   font-size: 16px;
-  line-height: 32px;
 }
 .c_title {
   text-align: center;
@@ -82,19 +126,19 @@
 }
 .c_cont1 {
   font-size: 16px;
-  line-height: 32px;
 }
 .c_cont2 {
   font-size: 16px;
-  line-height: 32px;
   list-style: cjk-ideographic;
-  padding-left: 23px;
+  padding-left: 34px;
 }
 .c_cont3 {
   font-size: 16px;
-  line-height: 32px;
   list-style: none;
   padding: 3%;
+}
+.c_cont4 {
+  padding-left: 21px;
 }
 .c_into {
   list-style-type: disc;

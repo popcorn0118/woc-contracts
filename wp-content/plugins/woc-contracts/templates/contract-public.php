@@ -61,7 +61,7 @@ $err = isset( $_GET['err'] ) ? sanitize_key( wp_unslash( $_GET['err'] ) ) : '';
 
             <?php if ( $is_signed ) : ?>
 
-                <h2 style="font-size:20px;margin-bottom:15px;">簽署資訊</h2>
+                <h2 class="signUsingTitle"><span>簽署資訊</span></h2>
 
                 <?php if ( $signature_url ) : ?>
                     <p>簽名：</p>
@@ -78,19 +78,16 @@ $err = isset( $_GET['err'] ) ? sanitize_key( wp_unslash( $_GET['err'] ) ) : '';
                     <p>簽署 IP：<?php echo esc_html( $signed_ip ); ?></p>
                 <?php endif; ?>
 
-                <p style="margin-top:15px;">此合約已完成簽署，內容僅供檢視與列印。</p>
+                <p style="margin-bottom:15px;">此合約已完成簽署，內容僅供檢視與列印。</p>
 
-                <p style="margin-top:20px;">
-                    <button type="button" onclick="window.print();"
-                            style="padding:8px 18px;border:1px solid #333;background:#333;color:#fff;cursor:pointer;">
-                        列印合約
-                    </button>
-                </p>
+                <div class="woc-button-warp">
+                    <button type="button" id="woc-print" onclick="window.print();">列印合約</button>
+                </div>
 
                 <?php else : ?>
 
-                <h2 style="font-size:20px;margin-bottom:10px;">簽名</h2>
-                <p style="margin-bottom:10px;">請使用手寫筆或滑鼠或手指簽名以授權此合約。通過電子簽名此文檔，表示您同意上面建立的條款。文檔簽名後，您可以列印保存。</p>
+                <h2 class="signUsingTitle"><span>簽　名</span></h2>
+                <p class="signUsing">請使用手寫筆或滑鼠或手指簽名以授權此合約。通過電子簽名此文檔，表示您同意上面建立的條款。文檔簽名後，您可以列印保存。</p>
 
                 <div>
                     <!-- 拿掉固定 width/height，交給 JS 依容器寬度設定 -->
@@ -106,20 +103,16 @@ $err = isset( $_GET['err'] ) ? sanitize_key( wp_unslash( $_GET['err'] ) ) : '';
                     <input type="hidden" name="woc_signature_data" id="woc_signature_data" value="">
                     <?php wp_nonce_field( 'woc_sign_contract_' . $contract_id, 'woc_sign_nonce' ); ?>
 
-                    <button type="button" id="woc-clear-signature"
-                            style="padding:6px 14px;margin-right:10px;border:1px solid #777;background:#f5f5f5;cursor:pointer;">
-                        清除簽名
-                    </button>
-
-                    <button type="submit" id="woc-submit-signature"
-                            style="padding:6px 18px;border:1px solid #0073aa;background:#0073aa;color:#fff;cursor:pointer;">
-                        送出簽名
-                    </button>
+                    <div class="woc-button-warp">
+                        <button type="button" id="woc-clear-signature">清除簽名</button>
+                        <button type="submit" id="woc-submit-signature">送出簽名</button>
+                    </div>
+                    
                 </form>
 
-                <p style="margin-top:10px;font-size:12px;color:#666;">
+                <!-- <p style="margin-top:10px;font-size:12px;color:#666;">
                     送出後合約內容將鎖定，如需修改請聯絡承辦人員重新建立合約。
-                </p>
+                </p> -->
 
             <?php endif; ?>
             
@@ -141,42 +134,37 @@ $err = isset( $_GET['err'] ) ? sanitize_key( wp_unslash( $_GET['err'] ) ) : '';
 
     // 固定輸出解析度（檔案一律 820px 寬）
     var BASE_WIDTH  = 820;
-    var BASE_HEIGHT = Math.round(BASE_WIDTH * (2 / 3)); // 跟之前 600x400 的比例一樣
-    var scaleX      = 1; // CSS → canvas 座標換算倍率（寬、高同一倍率）
+    var RATIO_DESKTOP = 1.5 / 3; //桌機比例
+    var RATIO_MOBILE  = 3 / 2.5; // 手機比例
 
     function setupCanvasSize() {
-        // 目前在畫面上實際呈現的寬度（CSS）
-        var cssWidth = canvas.clientWidth || BASE_WIDTH;
+    var cssWidth = canvas.clientWidth || BASE_WIDTH;
 
-        // 實際畫布解析度固定
-        canvas.width  = BASE_WIDTH;
-        canvas.height = BASE_HEIGHT;
+    // ✅ 依螢幕寬度切比例（你自己調斷點）
+    var ratio = window.matchMedia('(max-width: 580px)').matches
+        ? RATIO_MOBILE
+        : RATIO_DESKTOP;
 
-        // 320 → 820 之類的倍率
-        scaleX = BASE_WIDTH / cssWidth;
+    var BASE_HEIGHT = Math.round(BASE_WIDTH * ratio);
 
-        // 依比例算出要顯示在畫面上的高度，避免被拉扁
-        var cssHeight = BASE_HEIGHT / scaleX;
-        canvas.style.height = cssHeight + 'px';
+    canvas.width  = BASE_WIDTH;
+    canvas.height = BASE_HEIGHT;
 
-        // ==== 線寬：桌機粗一點，手機正常 ====
-        var targetCssStroke;
+    scaleX = BASE_WIDTH / cssWidth;
 
-        // scaleX 越小代表螢幕越寬（接近 820）
-        if ( scaleX <= 1.2 ) {
-            // 桌機：希望看起來大約 4px
-            targetCssStroke = 4;
-        } else {
-            // 手機 / 小螢幕：維持差不多 2.5px
-            targetCssStroke = 2.5;
-        }
+    var cssHeight = BASE_HEIGHT / scaleX;
+    canvas.style.height = cssHeight + 'px';
 
-        // 轉成 canvas 解析度的線寬
-        ctx.lineWidth  = targetCssStroke * scaleX;
-        ctx.lineCap    = 'round';
-        ctx.lineJoin   = 'round';
-        ctx.strokeStyle = '#000';
-    }
+    // 線寬邏輯照舊…
+    var targetCssStroke;
+    if ( scaleX <= 1.2 ) targetCssStroke = 4;
+    else targetCssStroke = 2.5;
+
+    ctx.lineWidth  = targetCssStroke * scaleX;
+    ctx.lineCap    = 'round';
+    ctx.lineJoin   = 'round';
+    ctx.strokeStyle = '#000';
+}
 
 
     setupCanvasSize();
