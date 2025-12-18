@@ -10,7 +10,8 @@ global $post;
 $contract_id = $post->ID;
 
 $required_token = get_post_meta( $contract_id, WOC_Contracts_CPT::META_VIEW_TOKEN, true );
-$given_token    = isset( $_GET['t'] ) ? sanitize_text_field( $_GET['t'] ) : '';
+$given_token    = isset( $_GET['t'] ) ? sanitize_text_field( wp_unslash( $_GET['t'] ) ) : '';
+
 
 $valid = ( ! empty( $required_token ) && hash_equals( $required_token, $given_token ) );
 
