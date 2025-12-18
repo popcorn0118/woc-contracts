@@ -281,7 +281,7 @@ class WOC_Contracts_Admin {
 
         // nonce（合約明細）
         if ( ! isset( $_POST['woc_contract_meta_nonce'] ) ||
-             ! wp_verify_nonce( $_POST['woc_contract_meta_nonce'], 'woc_contract_meta' ) ) {
+            ! wp_verify_nonce( $_POST['woc_contract_meta_nonce'], 'woc_contract_meta' ) ) {
             return;
         }
 
@@ -291,6 +291,27 @@ class WOC_Contracts_Admin {
             isset( $_POST['woc_remove_signature_nonce'] ) &&
             wp_verify_nonce( $_POST['woc_remove_signature_nonce'], 'woc_remove_signature' )
         ) {
+
+            // 先刪掉舊簽名檔（避免 uploads/woc-signatures 越堆越多）
+            $img_url = get_post_meta( $post_id, WOC_Contracts_CPT::META_SIGNATURE_IMAGE, true );
+            if ( $img_url ) {
+                $upload  = wp_upload_dir();
+                $baseurl = trailingslashit( $upload['baseurl'] );
+                $basedir = trailingslashit( $upload['basedir'] );
+
+                // 只允許刪 uploads 之下的檔案
+                if ( strpos( $img_url, $baseurl ) === 0 ) {
+                    $relative = ltrim( str_replace( $baseurl, '', $img_url ), '/' );
+                    $path     = $basedir . $relative;
+
+                    // 再加一層保護：只刪 woc-signatures 目錄內的檔
+                    $safe_dir = $basedir . 'woc-signatures/';
+                    if ( strpos( $path, $safe_dir ) === 0 && file_exists( $path ) ) {
+                        wp_delete_file( $path );
+                    }
+                }
+            }
+
             // 清除簽署相關 meta
             delete_post_meta( $post_id, WOC_Contracts_CPT::META_SIGNATURE_IMAGE );
             delete_post_meta( $post_id, WOC_Contracts_CPT::META_SIGNED_AT );
@@ -338,6 +359,7 @@ class WOC_Contracts_Admin {
             update_post_meta( $post_id, WOC_Contracts_CPT::META_VIEW_TOKEN, $token );
         }
     }
+
 
     /**
      * 後台載入 JS、CSS
