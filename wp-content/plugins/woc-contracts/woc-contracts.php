@@ -46,6 +46,7 @@ require_once WOC_CONTRACTS_PATH . 'includes/class-woc-contracts-frontend.php';
 // 後台才需要的再載
 if ( is_admin() ) {
     require_once WOC_CONTRACTS_PATH . 'includes/class-woc-contracts-admin.php';
+    require_once WOC_CONTRACTS_PATH . 'includes/class-woc-contracts-backup.php';
 }
 
 
