@@ -43,7 +43,7 @@ require_once WOC_CONTRACTS_PATH . 'includes/woc-contracts-functions.php';
 // 一律載入：因為 admin-post.php 也需要處理簽署
 require_once WOC_CONTRACTS_PATH . 'includes/class-woc-contracts-frontend.php';
 
-// 後台才需要的再載
+// 後台才需要的再載入
 if ( is_admin() ) {
     require_once WOC_CONTRACTS_PATH . 'includes/class-woc-contracts-admin.php';
     require_once WOC_CONTRACTS_PATH . 'includes/class-woc-contracts-backup.php';
