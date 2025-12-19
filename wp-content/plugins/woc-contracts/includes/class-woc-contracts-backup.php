@@ -117,9 +117,11 @@ class WOC_Contracts_Backup {
 
     public static function handle_import() {
         if ( ! current_user_can( 'manage_options' ) ) wp_die( '權限不足。' );
-        if ( ! isset( $_POST['woc_import_nonce'] ) || ! wp_verify_nonce( $_POST['woc_import_nonce'], self::NONCE_IMPORT ) ) {
+        $nonce = isset($_POST['woc_import_nonce']) ? wp_unslash($_POST['woc_import_nonce']) : '';
+        if ( ! $nonce || ! wp_verify_nonce( $nonce, self::NONCE_IMPORT ) ) {
             wp_die( 'Nonce 驗證失敗。' );
         }
+
 
         if ( empty( $_FILES['woc_json_file'] ) || ! isset( $_FILES['woc_json_file']['tmp_name'] ) ) {
             wp_die( '未上傳檔案。' );
@@ -127,6 +129,23 @@ class WOC_Contracts_Backup {
         if ( ! empty( $_FILES['woc_json_file']['error'] ) ) {
             wp_die( '上傳失敗（' . (int) $_FILES['woc_json_file']['error'] . '）。' );
         }
+
+        $max = 10 * 1024 * 1024; // 10MB
+        $size = isset($_FILES['woc_json_file']['size']) ? (int) $_FILES['woc_json_file']['size'] : 0;
+
+        if ( $size <= 0 ) {
+            wp_die('檔案大小異常。');
+        }
+        if ( $size > $max ) {
+            wp_die('JSON 檔過大，已拒絕（上限 10MB）。');
+        }
+
+        // 可選：提高 admin 記憶體上限
+        if ( function_exists('wp_raise_memory_limit') ) {
+            wp_raise_memory_limit('admin');
+        }
+        @set_time_limit(60);
+
 
         $tmp = $_FILES['woc_json_file']['tmp_name'];
         $raw = file_get_contents( $tmp );
@@ -230,41 +249,61 @@ class WOC_Contracts_Backup {
             'posts_per_page' => -1,
             'no_found_rows'  => true,
         ]);
-
-        $upload = wp_upload_dir();
+    
+        $upload  = wp_upload_dir();
         $baseurl = isset( $upload['baseurl'] ) ? (string) $upload['baseurl'] : '';
-
+    
         $files = [];
         $items = [];
-
+    
         foreach ( $q->posts as $p ) {
             $uuid = get_post_meta( $p->ID, '_woc_uuid', true );
-
+    
             $meta = self::pick_meta( $p->ID );
-
-            // ✅ 合約匯出：強制不要把 _woc_signature_image（可能是 data:image base64）塞進 meta
+    
+            // ✅ 合約匯出：不要把 _woc_signature_image（可能是 data:image base64）塞進 meta
             if ( isset( $meta[ WOC_Contracts_CPT::META_SIGNATURE_IMAGE ] ) ) {
                 unset( $meta[ WOC_Contracts_CPT::META_SIGNATURE_IMAGE ] );
             }
-
+    
+            // ===== 取簽名 URL（另外輸出到 signature 區塊）
             $sig_url = get_post_meta( $p->ID, WOC_Contracts_CPT::META_SIGNATURE_IMAGE, true );
             $sig_url = is_string( $sig_url ) ? $sig_url : '';
-
-            /** ✅ 如果是 data:image...base64，直接不匯出（避免 JSON 超長/截斷/壞掉） */
+    
+            // ✅ 如果是 data:image...base64，直接不匯出
             if ( $sig_url && strpos( $sig_url, 'data:image/' ) === 0 ) {
                 $sig_url = '';
             }
-
+    
+            // ===== 用 PATH 算 upload_relpath（較不吃網域/https/cdn）
             $relpath = '';
-            if ( $sig_url && $baseurl && strpos( $sig_url, $baseurl ) === 0 ) {
-                $relpath = ltrim( substr( $sig_url, strlen( $baseurl ) ), '/' );
+            if ( $sig_url && $baseurl ) {
+                $sig_path     = (string) parse_url( $sig_url, PHP_URL_PATH );   // /wp-content/uploads/...
+                $uploads_path = (string) parse_url( $baseurl, PHP_URL_PATH );   // /wp-content/uploads
+    
+                if ( $sig_path && $uploads_path && strpos( $sig_path, $uploads_path ) === 0 ) {
+                    $relpath = ltrim( substr( $sig_path, strlen( $uploads_path ) ), '/' );
+                }
             }
-
-
+    
             if ( $relpath ) {
                 $files[ $relpath ] = true;
             }
-
+    
+            // ===== ✅ 取合約使用的範本（跨站要靠 uuid）
+            $template_id = 0;
+            if ( isset( $meta[ WOC_Contracts_CPT::META_TEMPLATE_ID ] ) ) {
+                $template_id = (int) $meta[ WOC_Contracts_CPT::META_TEMPLATE_ID ];
+            }
+    
+            $template_uuid  = '';
+            $template_title = '';
+    
+            if ( $template_id > 0 && get_post_type( $template_id ) === WOC_Contracts_CPT::POST_TYPE_TEMPLATE ) {
+                $template_uuid  = (string) get_post_meta( $template_id, '_woc_uuid', true );
+                $template_title = (string) get_the_title( $template_id );
+            }
+    
             $items[] = [
                 'uuid' => $uuid ? (string) $uuid : '',
                 'post' => [
@@ -277,24 +316,34 @@ class WOC_Contracts_Backup {
                     'post_modified_gmt' => $p->post_modified_gmt,
                 ],
                 'meta' => $meta,
+    
+                // ✅ 新增：範本資訊（給 B 匯入時做 mapping）
+                'template' => [
+                    'id'    => $template_id,
+                    'uuid'  => $template_uuid,
+                    'title' => $template_title,
+                ],
+    
                 'signature' => [
                     'url'            => $sig_url ? (string) $sig_url : '',
                     'upload_relpath' => $relpath,
                 ],
             ];
         }
-
+    
         $payload = [
             'type'     => 'contracts',
-            'version'  => 1,
+            'version'  => 2, // ✅ 有新增 template 區塊，版本往上
             'exported' => current_time( 'c' ),
             'count'    => count( $items ),
-            'files'    => array_values( array_keys( $files ) ), // 給你搬檔用
+            'files'    => array_values( array_keys( $files ) ),
             'items'    => $items,
         ];
-
+    
         self::download_json( 'woc-contracts-contracts-' . gmdate( 'Ymd-His' ) . '.json', $payload );
     }
+    
+    
 
     private static function import_vars( array $data ) {
         if ( ! isset( $data['items'] ) || ! is_array( $data['items'] ) ) {
@@ -354,80 +403,210 @@ class WOC_Contracts_Backup {
         if ( empty( $data['items'] ) || ! is_array( $data['items'] ) ) {
             wp_die( 'JSON items 空或格式錯誤。' );
         }
-
+    
+        global $wpdb;
+    
         $upload  = wp_upload_dir();
         $baseurl = isset( $upload['baseurl'] ) ? (string) $upload['baseurl'] : '';
-
-        foreach ( $data['items'] as $item ) {
-            if ( ! is_array( $item ) ) continue;
-
-            $uuid = isset( $item['uuid'] ) ? (string) $item['uuid'] : '';
-            $post = isset( $item['post'] ) && is_array( $item['post'] ) ? $item['post'] : [];
-            $meta = isset( $item['meta'] ) && is_array( $item['meta'] ) ? $item['meta'] : [];
-
-            if ( empty( $post ) ) continue;
-
-            $existing_id = 0;
-            if ( $uuid !== '' ) {
-                $q = new WP_Query([
-                    'post_type'      => $post_type,
-                    'post_status'    => [ 'publish', 'draft', 'pending', 'private', 'trash' ],
-                    'posts_per_page' => 1,
-                    'no_found_rows'  => true,
-                    'fields'         => 'ids',
-                    'meta_key'       => '_woc_uuid',
-                    'meta_value'     => $uuid,
-                ]);
-                if ( ! empty( $q->posts[0] ) ) {
-                    $existing_id = (int) $q->posts[0];
+    
+        // ===== 一次性 map：目標站現有 posts 的 uuid => post_id（避免每筆 WP_Query）
+        $existing_uuid_to_id = [];
+        $statuses = [ 'publish', 'draft', 'pending', 'private', 'trash' ];
+        $in_status = "'" . implode( "','", array_map( 'esc_sql', $statuses ) ) . "'";
+    
+        $sql_existing = $wpdb->prepare(
+            "SELECT pm.post_id, pm.meta_value
+             FROM {$wpdb->postmeta} pm
+             INNER JOIN {$wpdb->posts} p ON p.ID = pm.post_id
+             WHERE pm.meta_key = '_woc_uuid'
+               AND p.post_type = %s
+               AND p.post_status IN ($in_status)",
+            $post_type
+        );
+        $rows_existing = $wpdb->get_results( $sql_existing ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery
+        if ( $rows_existing ) {
+            foreach ( $rows_existing as $r ) {
+                $u = is_string( $r->meta_value ) ? $r->meta_value : '';
+                if ( $u !== '' ) {
+                    $existing_uuid_to_id[ $u ] = (int) $r->post_id;
                 }
             }
-
+        }
+    
+        // ===== contracts 專用：一次性 map templates（uuid=>id、title=>id(唯一)）
+        $tpl_uuid_to_id = [];
+        $tpl_title_to_id = [];
+        $tpl_title_dupe  = [];
+    
+        if ( $post_type === WOC_Contracts_CPT::POST_TYPE_CONTRACT ) {
+    
+            // uuid => id
+            $sql_tpl_uuid = $wpdb->prepare(
+                "SELECT pm.post_id, pm.meta_value
+                 FROM {$wpdb->postmeta} pm
+                 INNER JOIN {$wpdb->posts} p ON p.ID = pm.post_id
+                 WHERE pm.meta_key = '_woc_uuid'
+                   AND p.post_type = %s
+                   AND p.post_status IN ($in_status)",
+                WOC_Contracts_CPT::POST_TYPE_TEMPLATE
+            );
+            $rows_tpl_uuid = $wpdb->get_results( $sql_tpl_uuid ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery
+            if ( $rows_tpl_uuid ) {
+                foreach ( $rows_tpl_uuid as $r ) {
+                    $u = is_string( $r->meta_value ) ? $r->meta_value : '';
+                    if ( $u !== '' ) {
+                        $tpl_uuid_to_id[ $u ] = (int) $r->post_id;
+                    }
+                }
+            }
+    
+            // title => id（只收唯一 title，避免撞名誤配）
+            $sql_tpl_title = $wpdb->prepare(
+                "SELECT ID, post_title
+                 FROM {$wpdb->posts}
+                 WHERE post_type = %s
+                   AND post_status IN ($in_status)",
+                WOC_Contracts_CPT::POST_TYPE_TEMPLATE
+            );
+            $rows_tpl_title = $wpdb->get_results( $sql_tpl_title ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery
+            if ( $rows_tpl_title ) {
+                foreach ( $rows_tpl_title as $r ) {
+                    $t = is_string( $r->post_title ) ? $r->post_title : '';
+                    $id = (int) $r->ID;
+                    if ( $t === '' ) continue;
+    
+                    if ( isset( $tpl_title_to_id[ $t ] ) ) {
+                        // duplicate：移除，並標記為重複，不再用 title 對應
+                        unset( $tpl_title_to_id[ $t ] );
+                        $tpl_title_dupe[ $t ] = true;
+                        continue;
+                    }
+                    if ( isset( $tpl_title_dupe[ $t ] ) ) {
+                        continue;
+                    }
+                    $tpl_title_to_id[ $t ] = $id;
+                }
+            }
+        }
+    
+        foreach ( $data['items'] as $item ) {
+            if ( ! is_array( $item ) ) continue;
+    
+            $uuid = isset( $item['uuid'] ) ? (string) $item['uuid'] : '';
+            $post = ( isset( $item['post'] ) && is_array( $item['post'] ) ) ? $item['post'] : [];
+            $meta = ( isset( $item['meta'] ) && is_array( $item['meta'] ) ) ? $item['meta'] : [];
+    
+            if ( empty( $post ) ) continue;
+    
+            // 目標站是否已存在同 uuid
+            $existing_id = 0;
+            if ( $uuid !== '' && isset( $existing_uuid_to_id[ $uuid ] ) ) {
+                $existing_id = (int) $existing_uuid_to_id[ $uuid ];
+            }
+    
             if ( $existing_id && ! $overwrite ) {
                 continue; // 預設跳過，避免蓋到另一邊新增/修改
             }
-
+    
+            // contracts：安全起見，不信任 meta 內的 signature（舊檔可能有 base64 或舊站 URL）
+            if ( $post_type === WOC_Contracts_CPT::POST_TYPE_CONTRACT && isset( $meta[ WOC_Contracts_CPT::META_SIGNATURE_IMAGE ] ) ) {
+                unset( $meta[ WOC_Contracts_CPT::META_SIGNATURE_IMAGE ] );
+            }
+    
+            // contracts：template 映射（uuid/title → B站 template ID；必要時保留 B站既有有效 template_id）
+            if ( $post_type === WOC_Contracts_CPT::POST_TYPE_CONTRACT ) {
+    
+                $tpl_uuid  = isset( $item['template']['uuid'] )  ? (string) $item['template']['uuid']  : '';
+                $tpl_title = isset( $item['template']['title'] ) ? (string) $item['template']['title'] : '';
+                $mapped_tpl_id = 0;
+    
+                // 1) uuid 最優先
+                if ( $tpl_uuid !== '' && isset( $tpl_uuid_to_id[ $tpl_uuid ] ) ) {
+                    $mapped_tpl_id = (int) $tpl_uuid_to_id[ $tpl_uuid ];
+                }
+    
+                // 2) title fallback（只用「唯一」title）
+                if ( ! $mapped_tpl_id && $tpl_title !== '' && isset( $tpl_title_to_id[ $tpl_title ] ) ) {
+                    $mapped_tpl_id = (int) $tpl_title_to_id[ $tpl_title ];
+                }
+    
+                // 3) 如果 mapping 失敗、且是更新既有合約：保留 B 站原本有效的 template_id（避免被清空變 —）
+                if ( ! $mapped_tpl_id && $existing_id ) {
+                    $current_tpl_id = (int) get_post_meta( $existing_id, WOC_Contracts_CPT::META_TEMPLATE_ID, true );
+                    if ( $current_tpl_id > 0 && get_post_type( $current_tpl_id ) === WOC_Contracts_CPT::POST_TYPE_TEMPLATE ) {
+                        $mapped_tpl_id = $current_tpl_id;
+                    }
+                }
+    
+                if ( $mapped_tpl_id ) {
+                    $meta[ WOC_Contracts_CPT::META_TEMPLATE_ID ] = (string) $mapped_tpl_id;
+                } else {
+                    // 找不到：把舊 template_id 轉存備援，並移除（避免留下錯 ID）
+                    if ( isset( $meta[ WOC_Contracts_CPT::META_TEMPLATE_ID ] ) ) {
+                        $meta['_woc_backup_template_id'] = (string) $meta[ WOC_Contracts_CPT::META_TEMPLATE_ID ];
+                        unset( $meta[ WOC_Contracts_CPT::META_TEMPLATE_ID ] );
+                    }
+                    if ( $tpl_uuid )  $meta['_woc_backup_template_uuid']  = $tpl_uuid;
+                    if ( $tpl_title ) $meta['_woc_backup_template_title'] = $tpl_title;
+                }
+            }
+    
             $postarr = [
-                'ID'              => $existing_id,
-                'post_type'        => $post_type,
-                'post_title'       => isset( $post['post_title'] ) ? $post['post_title'] : '',
-                'post_content'     => isset( $post['post_content'] ) ? $post['post_content'] : '',
-                'post_excerpt'     => isset( $post['post_excerpt'] ) ? $post['post_excerpt'] : '',
-                'post_status'      => isset( $post['post_status'] ) ? $post['post_status'] : 'publish',
-                'post_password'    => isset( $post['post_password'] ) ? $post['post_password'] : '',
+                'ID'           => $existing_id,
+                'post_type'    => $post_type,
+                'post_title'   => isset( $post['post_title'] ) ? $post['post_title'] : '',
+                'post_content' => isset( $post['post_content'] ) ? $post['post_content'] : '',
+                'post_excerpt' => isset( $post['post_excerpt'] ) ? $post['post_excerpt'] : '',
+                'post_status'  => isset( $post['post_status'] ) ? $post['post_status'] : 'publish',
+                'post_password'=> isset( $post['post_password'] ) ? $post['post_password'] : '',
             ];
-
+    
             if ( ! empty( $post['post_date_gmt'] ) )     $postarr['post_date_gmt'] = $post['post_date_gmt'];
             if ( ! empty( $post['post_modified_gmt'] ) ) $postarr['post_modified_gmt'] = $post['post_modified_gmt'];
-
+    
             // 重要：含 HTML 的內容要 wp_slash 才穩
             $postarr = wp_slash( $postarr );
-
+    
             $new_id = wp_insert_post( $postarr, true );
             if ( is_wp_error( $new_id ) ) {
                 continue;
             }
             $new_id = (int) $new_id;
-
+    
             // meta：只寫我們自己要的那批（避免垃圾 meta）
             foreach ( $meta as $k => $v ) {
                 if ( ! is_string( $k ) || $k === '' ) continue;
                 if ( strpos( $k, '_woc_' ) !== 0 && $k !== '_woc_uuid' && $k !== '_woc_backup_uuid' ) continue;
                 update_post_meta( $new_id, $k, $v );
             }
-
+    
             if ( $uuid !== '' ) {
                 update_post_meta( $new_id, '_woc_uuid', $uuid );
             }
-
-            // contracts：把 signature relpath 轉成本站 URL（你已搬檔就會正常顯示）
-            if ( $post_type === WOC_Contracts_CPT::POST_TYPE_CONTRACT && ! empty( $item['signature']['upload_relpath'] ) && $baseurl ) {
-                $rel = ltrim( (string) $item['signature']['upload_relpath'], '/' );
-                $url = trailingslashit( $baseurl ) . $rel;
-                update_post_meta( $new_id, WOC_Contracts_CPT::META_SIGNATURE_IMAGE, esc_url_raw( $url ) );
+    
+            // contracts：簽名（relpath 優先；沒有就 fallback 用 url；排除 base64）
+            if ( $post_type === WOC_Contracts_CPT::POST_TYPE_CONTRACT ) {
+    
+                if ( ! empty( $item['signature']['upload_relpath'] ) && $baseurl ) {
+                    $rel = ltrim( (string) $item['signature']['upload_relpath'], '/' );
+                    $url = trailingslashit( $baseurl ) . $rel;
+                    update_post_meta( $new_id, WOC_Contracts_CPT::META_SIGNATURE_IMAGE, esc_url_raw( $url ) );
+    
+                } elseif ( ! empty( $item['signature']['url'] ) ) {
+                    $u = (string) $item['signature']['url'];
+                    if ( strpos( $u, 'data:image/' ) !== 0 ) {
+                        update_post_meta( $new_id, WOC_Contracts_CPT::META_SIGNATURE_IMAGE, esc_url_raw( $u ) );
+                    }
+                }
+            }
+    
+            // 更新 map（同一次匯入檔裡如果有重複 uuid，後面能正確指到最新那筆）
+            if ( $uuid !== '' ) {
+                $existing_uuid_to_id[ $uuid ] = $new_id;
             }
         }
     }
+    
 
     private static function pick_meta( $post_id ) {
         $allow = [

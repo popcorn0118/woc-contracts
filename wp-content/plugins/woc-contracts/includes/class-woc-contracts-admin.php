@@ -168,7 +168,7 @@ class WOC_Contracts_Admin {
                 if ( $current_template_id ) {
                     echo esc_html( get_the_title( $current_template_id ) );
                 } else {
-                    echo '—';
+                    echo '無';
                 }
                 ?>
             </p>
@@ -612,7 +612,7 @@ class WOC_Contracts_Admin {
                 if ( $template_id ) {
                     echo esc_html( get_the_title( $template_id ) );
                 } else {
-                    echo '—';
+                    echo '無';
                 }
                 break;
 
