@@ -13,9 +13,9 @@ class WOC_Contracts_Backup {
     // 舊版 WP Online Contract 範本 CPT（相容用）
     const LEGACY_POST_TYPE_TEMPLATE = 'woc_contract_template';
 
-    // UUID meta keys（舊資料相容）
-    const META_UUID        = '_woc_uuid';
-    const META_BACKUP_UUID = '_woc_backup_uuid';
+    private static function uuid_key() {
+        return '_woc_uuid';
+    }
 
     public static function init() {
         add_action( 'admin_menu', [ __CLASS__, 'register_menu' ] );
@@ -231,35 +231,35 @@ class WOC_Contracts_Backup {
         return $types;
     }
 
-    private static function get_post_uuid_fallback( $post_id ) {
-        $u = get_post_meta( (int) $post_id, self::META_UUID, true );
-        $u = is_string( $u ) ? trim( $u ) : '';
-        if ( $u !== '' ) return $u;
+    private static function get_or_create_uuid( $post_id, $post_type = '' ) {
+        $post_id = (int) $post_id;
+        if ( $post_id <= 0 ) return '';
 
-        $u2 = get_post_meta( (int) $post_id, self::META_BACKUP_UUID, true );
-        $u2 = is_string( $u2 ) ? trim( $u2 ) : '';
-        return $u2;
-    }
+        $key = self::uuid_key();
+        $uuid = get_post_meta( $post_id, $key, true );
+        $uuid = is_string( $uuid ) ? trim( $uuid ) : '';
 
-    private static function ensure_post_uuid( $post_id ) {
-        $u = self::get_post_uuid_fallback( $post_id );
-        if ( $u !== '' ) {
-            // 若只有 backup uuid，順便補正到主 uuid，後續匯出/對應更穩
-            $main = get_post_meta( (int) $post_id, self::META_UUID, true );
-            $main = is_string( $main ) ? trim( $main ) : '';
-            if ( $main === '' ) {
-                update_post_meta( (int) $post_id, self::META_UUID, $u );
+        if ( $uuid !== '' ) return $uuid;
+
+        if ( $post_type === '' ) {
+            $post_type = (string) get_post_type( $post_id );
+        }
+
+        // 合約：優先用 view_token 做穩定 uuid（避免同檔重匯一直新增）
+        if ( class_exists( 'WOC_Contracts_CPT' ) && $post_type === WOC_Contracts_CPT::POST_TYPE_CONTRACT ) {
+            $vt = get_post_meta( $post_id, WOC_Contracts_CPT::META_VIEW_TOKEN, true );
+            $vt = is_string( $vt ) ? trim( $vt ) : '';
+            if ( $vt !== '' ) {
+                $uuid = 'vt-' . sha1( $vt );
             }
-            return $u;
         }
 
-        if ( function_exists( 'wp_generate_uuid4' ) ) {
-            $new = wp_generate_uuid4();
-        } else {
-            $new = md5( uniqid( (string) $post_id, true ) );
+        if ( $uuid === '' ) {
+            $uuid = function_exists('wp_generate_uuid4') ? wp_generate_uuid4() : ( 'u-' . sha1( uniqid( '', true ) ) );
         }
-        update_post_meta( (int) $post_id, self::META_UUID, $new );
-        return $new;
+
+        update_post_meta( $post_id, $key, $uuid );
+        return $uuid;
     }
 
     private static function export_vars() {
@@ -286,8 +286,8 @@ class WOC_Contracts_Backup {
 
         $items = [];
         foreach ( $q->posts as $p ) {
-            // 重點：確保每個範本都有 uuid（避免合約匯入對不到）
-            $uuid = self::ensure_post_uuid( $p->ID );
+
+            $uuid = self::get_or_create_uuid( $p->ID, (string) $p->post_type );
 
             $items[] = [
                 'uuid' => $uuid ? (string) $uuid : '',
@@ -306,7 +306,7 @@ class WOC_Contracts_Backup {
 
         $payload = [
             'type'     => 'templates',
-            'version'  => 2,
+            'version'  => 1,
             'exported' => current_time( 'c' ),
             'count'    => count( $items ),
             'items'    => $items,
@@ -359,8 +359,8 @@ class WOC_Contracts_Backup {
         $files_map = [];
 
         foreach ( $q->posts as $p ) {
-            $uuid = get_post_meta( $p->ID, self::META_UUID, true );
-            $uuid = is_string( $uuid ) ? trim( $uuid ) : '';
+
+            $uuid = self::get_or_create_uuid( $p->ID, WOC_Contracts_CPT::POST_TYPE_CONTRACT );
 
             $meta = self::pick_meta( $p->ID );
 
@@ -400,8 +400,7 @@ class WOC_Contracts_Backup {
             if ( $template_id > 0 ) {
                 $pt = (string) get_post_type( $template_id );
                 if ( $pt && in_array( $pt, $tpl_post_types, true ) ) {
-                    // 重點：template uuid 同時支援 _woc_uuid / _woc_backup_uuid（老資料）
-                    $template_uuid  = (string) self::get_post_uuid_fallback( $template_id );
+                    $template_uuid  = (string) self::get_or_create_uuid( $template_id, $pt );
                     $template_title = (string) get_the_title( $template_id );
                 }
             }
@@ -915,42 +914,48 @@ class WOC_Contracts_Backup {
         $statuses = [ 'publish', 'draft', 'pending', 'private', 'trash' ];
         $in_status = "'" . implode( "','", array_map( 'esc_sql', $statuses ) ) . "'";
 
-        // 既有 UUID 對應：templates 要同時認 _woc_uuid / _woc_backup_uuid，並涵蓋 legacy post_type
-        if ( class_exists( 'WOC_Contracts_CPT' ) && $post_type === WOC_Contracts_CPT::POST_TYPE_TEMPLATE ) {
-            $tpl_types = self::get_template_post_types();
-            $in_types = "'" . implode( "','", array_map( 'esc_sql', $tpl_types ) ) . "'";
-            $sql_existing = "
-                SELECT pm.post_id, pm.meta_key, pm.meta_value
-                FROM {$wpdb->postmeta} pm
-                INNER JOIN {$wpdb->posts} p ON p.ID = pm.post_id
-                WHERE pm.meta_key IN ('" . esc_sql( self::META_UUID ) . "','" . esc_sql( self::META_BACKUP_UUID ) . "')
-                  AND p.post_type IN ($in_types)
-                  AND p.post_status IN ($in_status)
-            ";
-        } else {
-            $sql_existing = $wpdb->prepare(
-                "SELECT pm.post_id, pm.meta_key, pm.meta_value
-                 FROM {$wpdb->postmeta} pm
-                 INNER JOIN {$wpdb->posts} p ON p.ID = pm.post_id
-                 WHERE pm.meta_key IN ('" . esc_sql( self::META_UUID ) . "','" . esc_sql( self::META_BACKUP_UUID ) . "')
-                   AND p.post_type = %s
-                   AND p.post_status IN ($in_status)",
-                $post_type
-            );
-        }
+        $uuid_key = self::uuid_key();
 
+        $sql_existing = $wpdb->prepare(
+            "SELECT pm.post_id, pm.meta_value
+             FROM {$wpdb->postmeta} pm
+             INNER JOIN {$wpdb->posts} p ON p.ID = pm.post_id
+             WHERE pm.meta_key = %s
+               AND p.post_type = %s
+               AND p.post_status IN ($in_status)",
+            $uuid_key,
+            $post_type
+        );
         $rows_existing = $wpdb->get_results( $sql_existing ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery
         if ( $rows_existing ) {
             foreach ( $rows_existing as $r ) {
                 $u = is_string( $r->meta_value ) ? trim( $r->meta_value ) : '';
-                if ( $u === '' ) continue;
+                if ( $u !== '' ) {
+                    $existing_uuid_to_id[ $u ] = (int) $r->post_id;
+                }
+            }
+        }
 
-                // 以 _woc_uuid 優先，_woc_backup_uuid 只補缺
-                $k = is_string( $r->meta_key ) ? $r->meta_key : '';
-                if ( $k === self::META_UUID ) {
-                    $existing_uuid_to_id[ $u ] = (int) $r->post_id;
-                } elseif ( ! isset( $existing_uuid_to_id[ $u ] ) ) {
-                    $existing_uuid_to_id[ $u ] = (int) $r->post_id;
+        // 合約：額外用 view_token 當去重 key（處理缺 uuid 的歷史資料）
+        $existing_vt_to_id = [];
+        if ( $post_type === WOC_Contracts_CPT::POST_TYPE_CONTRACT ) {
+            $sql_vt = $wpdb->prepare(
+                "SELECT pm.post_id, pm.meta_value
+                 FROM {$wpdb->postmeta} pm
+                 INNER JOIN {$wpdb->posts} p ON p.ID = pm.post_id
+                 WHERE pm.meta_key = %s
+                   AND p.post_type = %s
+                   AND p.post_status IN ($in_status)",
+                WOC_Contracts_CPT::META_VIEW_TOKEN,
+                $post_type
+            );
+            $rows_vt = $wpdb->get_results( $sql_vt ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery
+            if ( $rows_vt ) {
+                foreach ( $rows_vt as $r ) {
+                    $vt = is_string( $r->meta_value ) ? trim( $r->meta_value ) : '';
+                    if ( $vt !== '' && ! isset( $existing_vt_to_id[ $vt ] ) ) {
+                        $existing_vt_to_id[ $vt ] = (int) $r->post_id;
+                    }
                 }
             }
         }
@@ -959,17 +964,16 @@ class WOC_Contracts_Backup {
         $tpl_title_to_id = [];
         $tpl_title_dupe  = [];
 
-        if ( class_exists( 'WOC_Contracts_CPT' ) && $post_type === WOC_Contracts_CPT::POST_TYPE_CONTRACT ) {
+        if ( $post_type === WOC_Contracts_CPT::POST_TYPE_CONTRACT ) {
 
             $tpl_types = self::get_template_post_types();
             $in_tpl_types = "'" . implode( "','", array_map( 'esc_sql', $tpl_types ) ) . "'";
 
-            // 重點：uuid map 同時讀 _woc_uuid / _woc_backup_uuid
             $sql_tpl_uuid = "
-                SELECT pm.post_id, pm.meta_key, pm.meta_value
+                SELECT pm.post_id, pm.meta_value
                 FROM {$wpdb->postmeta} pm
                 INNER JOIN {$wpdb->posts} p ON p.ID = pm.post_id
-                WHERE pm.meta_key IN ('" . esc_sql( self::META_UUID ) . "','" . esc_sql( self::META_BACKUP_UUID ) . "')
+                WHERE pm.meta_key = '{$uuid_key}'
                   AND p.post_type IN ($in_tpl_types)
                   AND p.post_status IN ($in_status)
             ";
@@ -977,12 +981,7 @@ class WOC_Contracts_Backup {
             if ( $rows_tpl_uuid ) {
                 foreach ( $rows_tpl_uuid as $r ) {
                     $u = is_string( $r->meta_value ) ? trim( $r->meta_value ) : '';
-                    if ( $u === '' ) continue;
-
-                    $k = is_string( $r->meta_key ) ? $r->meta_key : '';
-                    if ( $k === self::META_UUID ) {
-                        $tpl_uuid_to_id[ $u ] = (int) $r->post_id;
-                    } elseif ( ! isset( $tpl_uuid_to_id[ $u ] ) ) {
+                    if ( $u !== '' ) {
                         $tpl_uuid_to_id[ $u ] = (int) $r->post_id;
                     }
                 }
@@ -1017,42 +1016,72 @@ class WOC_Contracts_Backup {
         foreach ( $data['items'] as $item ) {
             if ( ! is_array( $item ) ) continue;
 
-            $uuid = isset( $item['uuid'] ) ? trim( (string) $item['uuid'] ) : '';
             $post = ( isset( $item['post'] ) && is_array( $item['post'] ) ) ? $item['post'] : [];
             $meta = ( isset( $item['meta'] ) && is_array( $item['meta'] ) ) ? $item['meta'] : [];
 
             if ( empty( $post ) ) continue;
 
-            // templates：若 item.uuid 空，嘗試用 meta 裡的 backup uuid 補起來
-            if ( class_exists( 'WOC_Contracts_CPT' ) && $post_type === WOC_Contracts_CPT::POST_TYPE_TEMPLATE ) {
-                if ( $uuid === '' ) {
-                    $mu = isset( $meta[ self::META_UUID ] ) ? trim( (string) $meta[ self::META_UUID ] ) : '';
-                    if ( $mu !== '' ) {
-                        $uuid = $mu;
-                    } else {
-                        $mb = isset( $meta[ self::META_BACKUP_UUID ] ) ? trim( (string) $meta[ self::META_BACKUP_UUID ] ) : '';
-                        if ( $mb !== '' ) $uuid = $mb;
+            $uuid = isset( $item['uuid'] ) ? trim( (string) $item['uuid'] ) : '';
+            if ( $uuid === '' && isset( $meta[ $uuid_key ] ) ) {
+                $uuid = trim( (string) $meta[ $uuid_key ] );
+            }
+
+            $existing_id = 0;
+
+            // 先用 uuid 判斷是否已存在
+            if ( $uuid !== '' && isset( $existing_uuid_to_id[ $uuid ] ) ) {
+                $existing_id = (int) $existing_uuid_to_id[ $uuid ];
+            }
+
+            // 合約：若 uuid 缺，改用 view_token 做去重
+            $vt = '';
+            if ( ! $existing_id && $post_type === WOC_Contracts_CPT::POST_TYPE_CONTRACT ) {
+                if ( isset( $meta[ WOC_Contracts_CPT::META_VIEW_TOKEN ] ) ) {
+                    $vt = trim( (string) $meta[ WOC_Contracts_CPT::META_VIEW_TOKEN ] );
+                }
+                if ( $vt !== '' && isset( $existing_vt_to_id[ $vt ] ) ) {
+                    $existing_id = (int) $existing_vt_to_id[ $vt ];
+
+                    // 若既有資料沒 uuid，補一個穩定 uuid（用 view_token）
+                    if ( $uuid === '' ) {
+                        $uuid = (string) self::get_or_create_uuid( $existing_id, $post_type );
                     }
                 }
             }
 
-            $existing_id = 0;
-            if ( $uuid !== '' && isset( $existing_uuid_to_id[ $uuid ] ) ) {
-                $existing_id = (int) $existing_uuid_to_id[ $uuid ];
+            // 最後保底：title + post_date_gmt（只在 uuid/view_token 都缺時）
+            if ( ! $existing_id && $uuid === '' && $post_type === WOC_Contracts_CPT::POST_TYPE_CONTRACT ) {
+                $t = isset( $post['post_title'] ) ? trim( (string) $post['post_title'] ) : '';
+                $d = isset( $post['post_date_gmt'] ) ? trim( (string) $post['post_date_gmt'] ) : '';
+                if ( $t !== '' && $d !== '' ) {
+                    $sql_match = $wpdb->prepare(
+                        "SELECT ID FROM {$wpdb->posts}
+                         WHERE post_type = %s
+                           AND post_title = %s
+                           AND post_date_gmt = %s
+                           AND post_status IN ($in_status)
+                         LIMIT 2",
+                        $post_type,
+                        $t,
+                        $d
+                    );
+                    $ids = $wpdb->get_col( $sql_match ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery
+                    if ( is_array( $ids ) && count( $ids ) === 1 ) {
+                        $existing_id = (int) $ids[0];
+                    }
+                }
             }
 
             if ( $existing_id && ! $overwrite ) {
                 continue;
             }
 
-            if ( class_exists( 'WOC_Contracts_CPT' )
-                && $post_type === WOC_Contracts_CPT::POST_TYPE_CONTRACT
-                && isset( $meta[ WOC_Contracts_CPT::META_SIGNATURE_IMAGE ] )
-            ) {
+            if ( $post_type === WOC_Contracts_CPT::POST_TYPE_CONTRACT && isset( $meta[ WOC_Contracts_CPT::META_SIGNATURE_IMAGE ] ) ) {
                 unset( $meta[ WOC_Contracts_CPT::META_SIGNATURE_IMAGE ] );
             }
 
-            if ( class_exists( 'WOC_Contracts_CPT' ) && $post_type === WOC_Contracts_CPT::POST_TYPE_CONTRACT ) {
+            // 合約：範本綁定（用 template.uuid/title 映射到目標站）
+            if ( $post_type === WOC_Contracts_CPT::POST_TYPE_CONTRACT ) {
 
                 $tpl_uuid  = '';
                 $tpl_title = '';
@@ -1092,6 +1121,26 @@ class WOC_Contracts_Backup {
                     if ( $tpl_uuid )  $meta['_woc_backup_template_uuid']  = $tpl_uuid;
                     if ( $tpl_title ) $meta['_woc_backup_template_title'] = $tpl_title;
                 }
+
+                // 合約 uuid：缺的話用 view_token 派生（同檔重匯可去重）
+                if ( $uuid === '' ) {
+                    if ( $vt === '' && isset( $meta[ WOC_Contracts_CPT::META_VIEW_TOKEN ] ) ) {
+                        $vt = trim( (string) $meta[ WOC_Contracts_CPT::META_VIEW_TOKEN ] );
+                    }
+                    if ( $vt !== '' ) {
+                        $uuid = 'vt-' . sha1( $vt );
+                    } else {
+                        $uuid = function_exists('wp_generate_uuid4') ? wp_generate_uuid4() : ( 'u-' . sha1( uniqid( '', true ) ) );
+                    }
+                }
+
+                $meta[ $uuid_key ] = $uuid;
+            } else {
+                // 範本 uuid：缺就補
+                if ( $uuid === '' ) {
+                    $uuid = function_exists('wp_generate_uuid4') ? wp_generate_uuid4() : ( 'u-' . sha1( uniqid( '', true ) ) );
+                }
+                $meta[ $uuid_key ] = $uuid;
             }
 
             $postarr = [
@@ -1117,19 +1166,23 @@ class WOC_Contracts_Backup {
 
             foreach ( $meta as $k => $v ) {
                 if ( ! is_string( $k ) || $k === '' ) continue;
-                if ( strpos( $k, '_woc_' ) !== 0 && $k !== self::META_UUID && $k !== self::META_BACKUP_UUID ) continue;
+                if ( strpos( $k, '_woc_' ) !== 0 && $k !== $uuid_key && $k !== '_woc_backup_uuid' ) continue;
                 update_post_meta( $new_id, $k, $v );
             }
 
-            // 一律把 uuid 寫回主 key（templates 匯出已補 uuid，匯入再補正一次，後續對應最穩）
+            // 一律寫回 uuid（確保後續匯入能對到）
             if ( $uuid !== '' ) {
-                update_post_meta( $new_id, self::META_UUID, $uuid );
-            } elseif ( class_exists( 'WOC_Contracts_CPT' ) && $post_type === WOC_Contracts_CPT::POST_TYPE_TEMPLATE ) {
-                // template 最後保底：沒有任何 uuid 就生成（避免下一次匯出又是空）
-                self::ensure_post_uuid( $new_id );
+                update_post_meta( $new_id, $uuid_key, $uuid );
+                $existing_uuid_to_id[ $uuid ] = $new_id;
             }
 
-            if ( class_exists( 'WOC_Contracts_CPT' ) && $post_type === WOC_Contracts_CPT::POST_TYPE_CONTRACT ) {
+            if ( $post_type === WOC_Contracts_CPT::POST_TYPE_CONTRACT ) {
+                if ( $vt === '' && isset( $meta[ WOC_Contracts_CPT::META_VIEW_TOKEN ] ) ) {
+                    $vt = trim( (string) $meta[ WOC_Contracts_CPT::META_VIEW_TOKEN ] );
+                }
+                if ( $vt !== '' ) {
+                    $existing_vt_to_id[ $vt ] = $new_id;
+                }
 
                 if ( isset( $item['signature'] ) && is_array( $item['signature'] ) ) {
 
@@ -1146,10 +1199,6 @@ class WOC_Contracts_Backup {
                     }
                 }
             }
-
-            if ( $uuid !== '' ) {
-                $existing_uuid_to_id[ $uuid ] = $new_id;
-            }
         }
     }
 
@@ -1162,8 +1211,8 @@ class WOC_Contracts_Backup {
             WOC_Contracts_CPT::META_SIGNED_AT,
             WOC_Contracts_CPT::META_SIGNED_IP,
             WOC_Contracts_CPT::META_SIGNATURE_IMAGE,
-            self::META_UUID,
-            self::META_BACKUP_UUID,
+            '_woc_uuid',
+            '_woc_backup_uuid',
         ];
 
         if ( defined( 'WOC_Contracts_CPT::META_AUDIT_LOG' ) ) {
