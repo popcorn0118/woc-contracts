@@ -17,7 +17,7 @@ class WOC_Contracts_Limits {
 
     public static function register_menu() {
 
-        // 先只讓最高權限可見（跟你現有備份頁一致）
+        // 先只讓最高權限可見
         if ( ! current_user_can( 'manage_options' ) ) {
             return;
         }
@@ -97,12 +97,67 @@ class WOC_Contracts_Limits {
         return array_merge( $defaults, $opt );
     }
 
+    private static function count_total_including_trash( $post_type ) {
+        global $wpdb;
+    
+        $post_type = (string) $post_type;
+        if ( $post_type === '' ) return 0;
+    
+        // All(不管任何狀態) + Trash(回收桶)
+        // = 這個 post_type 的所有文章總數（任何狀態、含 trash）
+        //
+        // 但「auto-draft」是 WP 新增/編輯時的暫存草稿，會讓數字抖動，
+        // 通常不算進方案限制，否則客戶會覺得你在坑他。
+        //
+        // 如果 auto-draft(WordPress 自動產生的「暫存稿」) 也要算：把下面 AND post_status <> 'auto-draft' 拿掉即可。
+
+        $sql = "
+            SELECT COUNT(1)
+            FROM {$wpdb->posts}
+            WHERE post_type = %s
+              AND post_status <> %s
+        ";
+    
+        return (int) $wpdb->get_var(
+            $wpdb->prepare( $sql, $post_type, 'auto-draft' )
+        );
+    }
+
+    private static function count_contracts_all() {
+        if ( ! class_exists( 'WOC_Contracts_CPT' ) ) return 0;
+        return self::count_total_including_trash( WOC_Contracts_CPT::POST_TYPE_CONTRACT );
+    }
+    
+    private static function count_templates_all() {
+        if ( ! class_exists( 'WOC_Contracts_CPT' ) ) return 0;
+        return self::count_total_including_trash( WOC_Contracts_CPT::POST_TYPE_TEMPLATE );
+    }
+    
+    private static function count_users_excluding_admin() {
+        $counts = count_users();
+        if ( empty( $counts['avail_roles'] ) || ! is_array( $counts['avail_roles'] ) ) {
+            return 0;
+        }
+    
+        $total = 0;
+        foreach ( $counts['avail_roles'] as $role => $n ) {
+            if ( $role === 'administrator' ) continue;
+            $total += (int) $n;
+        }
+    
+        return (int) $total;
+    }    
+
     public static function render_page() {
         if ( ! current_user_can( 'manage_options' ) ) {
             return;
         }
 
         $s = self::get_settings();
+        $cur_contracts = self::count_contracts_all();
+        $cur_templates = self::count_templates_all();
+        $cur_users     = self::count_users_excluding_admin();
+
 
         echo '<div class="wrap">';
         echo '<h1>' . esc_html__( '設定', 'woc-contracts' ) . '</h1>';
@@ -127,6 +182,7 @@ class WOC_Contracts_Limits {
         echo '</th>';
         echo '<td>';
         echo '<input name="contracts_limit" id="contracts_limit" type="number" min="0" step="1" value="' . esc_attr( (int) $s['contracts_limit'] ) . '" class="small-text" />';
+        echo '<p class="description">目前數量：' . esc_html( number_format_i18n( $cur_contracts ) ) . '（含回收桶）</p>';
         echo '</td>';
         echo '</tr>';
 
@@ -138,6 +194,7 @@ class WOC_Contracts_Limits {
         echo '</th>';
         echo '<td>';
         echo '<input name="templates_limit" id="templates_limit" type="number" min="0" step="1" value="' . esc_attr( (int) $s['templates_limit'] ) . '" class="small-text" />';
+        echo '<p class="description">目前數量：' . esc_html( number_format_i18n( $cur_templates ) ) . '（含回收桶）</p>';
         echo '</td>';
         echo '</tr>';
 
@@ -149,6 +206,7 @@ class WOC_Contracts_Limits {
         echo '</th>';
         echo '<td>';
         echo '<input name="users_limit" id="users_limit" type="number" min="0" step="1" value="' . esc_attr( (int) $s['users_limit'] ) . '" class="small-text" />';
+        echo '<p class="description">目前數量：' . esc_html( number_format_i18n( $cur_users ) ) . '（排除 administrator）</p>';
         echo '</td>';
         echo '</tr>';
 
