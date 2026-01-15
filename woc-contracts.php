@@ -39,13 +39,13 @@ if ( ! defined( 'WOC_CONTRACTS_URL' ) ) {
 // 不分前後台都要載入
 require_once WOC_CONTRACTS_PATH . 'includes/class-woc-contracts-cpt.php';        // 註冊 CPT / meta key / 基礎常數
 require_once WOC_CONTRACTS_PATH . 'includes/woc-contracts-functions.php';        // 共用函式（前後台都可能用到）
-require_once WOC_CONTRACTS_PATH . 'includes/class-woc-contracts-limits.php';     // 方案限制引擎（合約/範本/使用者上限）
 
 // 一律載入：因為 admin-post.php 也需要處理簽署
 require_once WOC_CONTRACTS_PATH . 'includes/class-woc-contracts-frontend.php';   // 前台簽署流程 + admin-post 簽署入口
 
 // 後台才需要的再載入
 if ( is_admin() ) {
+    require_once WOC_CONTRACTS_PATH . 'includes/class-woc-contracts-limits.php';     // 方案限制引擎（合約/範本/使用者上限）
     require_once WOC_CONTRACTS_PATH . 'includes/class-woc-contracts-admin.php';  // 後台 UI / metabox / ajax 等
     require_once WOC_CONTRACTS_PATH . 'includes/class-woc-contracts-backup.php'; // 備份/匯入匯出（後台頁面 + admin-post）
 }
@@ -94,18 +94,18 @@ final class WOC_Contracts_Plugin {
             WOC_Contracts_CPT::init();
         }
 
-        // 方案限制（範本數、合約數、使用者數...等）
-        if ( class_exists( 'WOC_Contracts_Limits' ) && method_exists( 'WOC_Contracts_Limits', 'init' ) ) {
-            WOC_Contracts_Limits::init();
-        }
-
-        // 前台/簽署流程（含 admin-post 簽署入口）
+                // 前台/簽署流程（含 admin-post 簽署入口）
         if ( class_exists( 'WOC_Contracts_Frontend' ) && method_exists( 'WOC_Contracts_Frontend', 'init' ) ) {
             WOC_Contracts_Frontend::init();
         }
 
         // 後台模組（只在後台啟動）
         if ( is_admin() ) {
+
+            // 方案限制（範本數、合約數、使用者數...等）
+            if ( class_exists( 'WOC_Contracts_Limits' ) && method_exists( 'WOC_Contracts_Limits', 'init' ) ) {
+                WOC_Contracts_Limits::init();
+            }
 
             if ( class_exists( 'WOC_Contracts_Admin' ) && method_exists( 'WOC_Contracts_Admin', 'init' ) ) {
                 WOC_Contracts_Admin::init();
