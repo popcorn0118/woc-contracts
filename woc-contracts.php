@@ -2,7 +2,7 @@
 /**
  * Plugin Name: 線上合約
  * Description: 客製線上合約與簽署系統
- * Version:     1.0.0
+ * Version:     1.0.1
  * Author:      popcorn
  * Text Domain: woc-contracts
  */
@@ -36,18 +36,20 @@ if ( ! defined( 'WOC_CONTRACTS_URL' ) ) {
 }
 
 
-// 1. CPT & 共用函式：不分前後台都要載入
-require_once WOC_CONTRACTS_PATH . 'includes/class-woc-contracts-cpt.php';
-require_once WOC_CONTRACTS_PATH . 'includes/woc-contracts-functions.php';
+// 不分前後台都要載入
+require_once WOC_CONTRACTS_PATH . 'includes/class-woc-contracts-cpt.php';        // 註冊 CPT / meta key / 基礎常數
+require_once WOC_CONTRACTS_PATH . 'includes/woc-contracts-functions.php';        // 共用函式（前後台都可能用到）
+require_once WOC_CONTRACTS_PATH . 'includes/class-woc-contracts-limits.php';     // 方案限制引擎（合約/範本/使用者上限）
 
 // 一律載入：因為 admin-post.php 也需要處理簽署
-require_once WOC_CONTRACTS_PATH . 'includes/class-woc-contracts-frontend.php';
+require_once WOC_CONTRACTS_PATH . 'includes/class-woc-contracts-frontend.php';   // 前台簽署流程 + admin-post 簽署入口
 
 // 後台才需要的再載入
 if ( is_admin() ) {
-    require_once WOC_CONTRACTS_PATH . 'includes/class-woc-contracts-admin.php';
-    require_once WOC_CONTRACTS_PATH . 'includes/class-woc-contracts-backup.php';
+    require_once WOC_CONTRACTS_PATH . 'includes/class-woc-contracts-admin.php';  // 後台 UI / metabox / ajax 等
+    require_once WOC_CONTRACTS_PATH . 'includes/class-woc-contracts-backup.php'; // 備份/匯入匯出（後台頁面 + admin-post）
 }
+
 
 
 
@@ -81,11 +83,43 @@ final class WOC_Contracts_Plugin {
      * 建構子：掛所有 hook
      */
     private function __construct() {
-        // 之後 Phase 1+ 的程式都從這裡往外 require
-        // 例如：$this->load_cpts(); $this->load_frontend(); 等等。
+
+        /**
+         * 模組集中啟動（檔案只負責宣告 class；init 由這裡統一呼叫）
+         * 注意：這裡只負責 init，不做任何業務邏輯。
+         */
+
+        // CPT / 基礎結構：優先啟動
+        if ( class_exists( 'WOC_Contracts_CPT' ) && method_exists( 'WOC_Contracts_CPT', 'init' ) ) {
+            WOC_Contracts_CPT::init();
+        }
+
+        // 方案限制（範本數、合約數、使用者數...等）
+        if ( class_exists( 'WOC_Contracts_Limits' ) && method_exists( 'WOC_Contracts_Limits', 'init' ) ) {
+            WOC_Contracts_Limits::init();
+        }
+
+        // 前台/簽署流程（含 admin-post 簽署入口）
+        if ( class_exists( 'WOC_Contracts_Frontend' ) && method_exists( 'WOC_Contracts_Frontend', 'init' ) ) {
+            WOC_Contracts_Frontend::init();
+        }
+
+        // 後台模組（只在後台啟動）
+        if ( is_admin() ) {
+
+            if ( class_exists( 'WOC_Contracts_Admin' ) && method_exists( 'WOC_Contracts_Admin', 'init' ) ) {
+                WOC_Contracts_Admin::init();
+            }
+
+            // 備份/匯入匯出（外層檔是舊路徑相容轉接，真正 class 在 includes/backup/ 內）
+            if ( class_exists( 'WOC_Contracts_Backup' ) && method_exists( 'WOC_Contracts_Backup', 'init' ) ) {
+                WOC_Contracts_Backup::init();
+            }
+        }
 
         add_action( 'admin_notices', [ $this, 'admin_notice_phase0' ] );
     }
+
 
     /**
      * 外掛啟用時執行

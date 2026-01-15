@@ -214,4 +214,4 @@ class WOC_Contracts_Frontend {
     }
 }
 
-WOC_Contracts_Frontend::init();
+// WOC_Contracts_Frontend::init();

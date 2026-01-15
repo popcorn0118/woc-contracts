@@ -138,4 +138,4 @@ class WOC_Contracts_Backup {
     }
 }
 
-WOC_Contracts_Backup::init();
+// WOC_Contracts_Backup::init();

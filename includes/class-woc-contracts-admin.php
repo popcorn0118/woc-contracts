@@ -831,4 +831,4 @@ class WOC_Contracts_Admin {
 
 }
 
-WOC_Contracts_Admin::init();
+// WOC_Contracts_Admin::init();

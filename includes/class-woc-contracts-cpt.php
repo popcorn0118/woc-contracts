@@ -526,4 +526,4 @@ class WOC_Contracts_CPT {
 
 }
 
-WOC_Contracts_CPT::init();
+// WOC_Contracts_CPT::init();
