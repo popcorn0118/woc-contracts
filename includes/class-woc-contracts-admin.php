@@ -270,7 +270,7 @@ class WOC_Contracts_Admin {
         if ( $post->post_type !== WOC_Contracts_CPT::POST_TYPE_CONTRACT ) {
             return;
         }
-
+    
         // 自動儲存 / 無權限略過
         if ( defined( 'DOING_AUTOSAVE' ) && DOING_AUTOSAVE ) {
             return;
@@ -278,32 +278,28 @@ class WOC_Contracts_Admin {
         if ( ! current_user_can( 'edit_post', $post_id ) ) {
             return;
         }
-
-        // nonce（合約明細）
-        if ( ! isset( $_POST['woc_contract_meta_nonce'] ) ||
-            ! wp_verify_nonce( $_POST['woc_contract_meta_nonce'], 'woc_contract_meta' ) ) {
-            return;
-        }
-
-        // --- 情境 A：清除簽名，重新開放簽署 --------------------------
+    
+        /**
+         * 情境 A：清除簽名（優先處理，避免被 contract_meta_nonce 擋掉）
+         */
         if (
             isset( $_POST['woc_remove_signature'] ) &&
             isset( $_POST['woc_remove_signature_nonce'] ) &&
             wp_verify_nonce( $_POST['woc_remove_signature_nonce'], 'woc_remove_signature' )
         ) {
-
+    
             // 先刪掉舊簽名檔（避免 uploads/woc-signatures 越堆越多）
             $img_url = get_post_meta( $post_id, WOC_Contracts_CPT::META_SIGNATURE_IMAGE, true );
             if ( $img_url ) {
                 $upload  = wp_upload_dir();
                 $baseurl = trailingslashit( $upload['baseurl'] );
                 $basedir = trailingslashit( $upload['basedir'] );
-
+    
                 // 只允許刪 uploads 之下的檔案
                 if ( strpos( $img_url, $baseurl ) === 0 ) {
                     $relative = ltrim( str_replace( $baseurl, '', $img_url ), '/' );
                     $path     = $basedir . $relative;
-
+    
                     // 再加一層保護：只刪 woc-signatures 目錄內的檔
                     $safe_dir = $basedir . 'woc-signatures/';
                     if ( strpos( $path, $safe_dir ) === 0 && file_exists( $path ) ) {
@@ -311,54 +307,63 @@ class WOC_Contracts_Admin {
                     }
                 }
             }
-
+    
             // 清除簽署相關 meta
             delete_post_meta( $post_id, WOC_Contracts_CPT::META_SIGNATURE_IMAGE );
             delete_post_meta( $post_id, WOC_Contracts_CPT::META_SIGNED_AT );
             delete_post_meta( $post_id, WOC_Contracts_CPT::META_SIGNED_IP );
             update_post_meta( $post_id, WOC_Contracts_CPT::META_STATUS, 'draft' );
-
+    
             // 重新產生 token，讓舊連結失效
             $new_token = wp_generate_password( 32, false, false );
             update_post_meta( $post_id, WOC_Contracts_CPT::META_VIEW_TOKEN, $new_token );
-
-            // === 寫入「誰清除簽名」的操作紀錄 ===
+    
+            // 寫入操作紀錄
             $user = wp_get_current_user();
             $name = ( $user && $user->ID ) ? $user->user_login : 'unknown';
-
+    
             WOC_Contracts_CPT::add_audit_log(
                 $post_id,
                 '簽名已由 ' . $name . ' 清除，合約重新開放簽署'
             );
-
+    
             return;
         }
-
-        // --- 情境 B：一般儲存（尚未簽署或簽署前的調整）--------------
-
+    
+        /**
+         * 情境 B：一般儲存（這裡才驗合約明細 nonce）
+         */
+        if (
+            ! isset( $_POST['woc_contract_meta_nonce'] ) ||
+            ! wp_verify_nonce( $_POST['woc_contract_meta_nonce'], 'woc_contract_meta' )
+        ) {
+            return;
+        }
+    
         // 若已簽署，不再允許修改任何 meta（維持鎖定狀態）
         $status = get_post_meta( $post_id, WOC_Contracts_CPT::META_STATUS, true );
         if ( $status === 'signed' ) {
             return;
         }
-
+    
         // 1. 儲存範本 ID（允許空值）
         $template_id = isset( $_POST['woc_template_id'] ) ? (int) $_POST['woc_template_id'] : 0;
-
+    
         if ( $template_id > 0 ) {
             update_post_meta( $post_id, WOC_Contracts_CPT::META_TEMPLATE_ID, $template_id );
         } else {
             delete_post_meta( $post_id, WOC_Contracts_CPT::META_TEMPLATE_ID );
         }
-
+    
         // 2. 若尚未有 view_token，產一組
         $existing_token = get_post_meta( $post_id, WOC_Contracts_CPT::META_VIEW_TOKEN, true );
-
+    
         if ( empty( $existing_token ) ) {
             $token = wp_generate_password( 32, false, false );
             update_post_meta( $post_id, WOC_Contracts_CPT::META_VIEW_TOKEN, $token );
         }
     }
+    
 
 
     /**
