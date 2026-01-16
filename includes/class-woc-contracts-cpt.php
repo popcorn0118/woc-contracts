@@ -38,7 +38,33 @@ class WOC_Contracts_CPT {
 
         //只跑一次塞 caps 給管理員
         add_action( 'init', [ __CLASS__, 'add_template_caps_once' ], 20 );
+
+        add_action( 'save_post_' . self::POST_TYPE_CONTRACT, [ __CLASS__, 'ensure_default_category_for_contract' ], 10, 3 );
+        
     }
+
+    /**
+     * 套用「預設文章分類」
+     */
+    public static function ensure_default_category_for_contract( $post_id, $post, $update ) {
+
+        if ( wp_is_post_autosave( $post_id ) || wp_is_post_revision( $post_id ) ) return;
+        if ( defined( 'DOING_AUTOSAVE' ) && DOING_AUTOSAVE ) return;
+    
+        // 只處理本 CPT（保險）
+        if ( empty( $post->post_type ) || $post->post_type !== self::POST_TYPE_CONTRACT ) return;
+    
+        // 已有分類就不動
+        $terms = wp_get_object_terms( $post_id, 'category', [ 'fields' => 'ids' ] );
+        if ( is_wp_error( $terms ) || ! empty( $terms ) ) return;
+    
+        // 套用「預設文章分類」
+        $default_cat = (int) get_option( 'default_category' );
+        if ( $default_cat > 0 ) {
+            wp_set_post_terms( $post_id, [ $default_cat ], 'category', false );
+        }
+    }
+    
 
     /**
      * 註冊 CPT
@@ -72,6 +98,7 @@ class WOC_Contracts_CPT {
                 'menu_position'   => 25,
                 'menu_icon'       => 'dashicons-media-text',
                 'supports'        => [ 'title', 'editor' ],
+                'taxonomies'       => [ 'category' ],
                 'rewrite'         => [
                     'slug'       => 'contract',
                     'with_front' => false,
@@ -114,6 +141,7 @@ class WOC_Contracts_CPT {
             ]
         );
     }
+    
 
     /**
      * 把「合約範本」掛在「線上合約」底下
