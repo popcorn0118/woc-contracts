@@ -210,6 +210,7 @@ class WOC_Contracts_Limits {
      */
     public static function maybe_block_user_new() {
         if ( ! is_admin() ) return;
+        if ( current_user_can( 'administrator' ) ) return;
         if ( ! current_user_can( 'create_users' ) ) return;
 
         $limit = self::get_user_limit();
