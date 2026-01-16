@@ -5,24 +5,99 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 class WOC_Contracts_Limits {
 
-    const OPTION_KEY = 'woc_contracts_limits';
+    const OPT_CONTRACT_LIMIT  = 'woc_contracts_contract_limit';
+    const OPT_TEMPLATE_LIMIT  = 'woc_contracts_template_limit';
+    const OPT_USER_LIMIT      = 'woc_contracts_user_limit';
+
+    const SETTINGS_GROUP      = 'woc_contracts_settings_group';
 
     /**
-     * 初始化（之後所有 hook 都從這裡進）
+     * 初始化
      */
     public static function init() {
+
+        // Settings API（讓 options.php 能正常儲存，不會跳去「全部設定」）
+        add_action( 'admin_init', [ __CLASS__, 'register_settings' ] );
+
+        // 設定頁選單
         add_action( 'admin_menu', [ __CLASS__, 'register_menu' ] );
-        add_action( 'admin_init', [ __CLASS__, 'handle_save' ] );
+
+        // 1) UI 層：進「新增」頁就擋
+        add_action( 'load-post-new.php', [ __CLASS__, 'maybe_block_post_new' ] );
+
+        // 2) 寫入層：就算硬打 post.php 也擋
+        add_filter( 'wp_insert_post_data', [ __CLASS__, 'maybe_block_post_insert' ], 10, 2 );
+
+        // 使用者上限：UI 層（進 user-new.php 就擋）
+        add_action( 'load-user-new.php', [ __CLASS__, 'maybe_block_user_new' ] );
+
+        // 使用者上限：寫入層（後台新增使用者送出前擋）
+        add_action( 'user_profile_update_errors', [ __CLASS__, 'maybe_block_user_admin_create' ], 10, 3 );
+
+        // 使用者上限：前台註冊（有開放註冊時）
+        add_filter( 'registration_errors', [ __CLASS__, 'maybe_block_user_registration' ], 10, 3 );
+    }
+
+    /**
+     * 註冊設定（0 = 不限）
+     */
+    public static function register_settings() {
+        register_setting(
+            self::SETTINGS_GROUP,
+            self::OPT_CONTRACT_LIMIT,
+            [
+                'type'              => 'integer',
+                'sanitize_callback' => [ __CLASS__, 'sanitize_limit' ],
+                'default'           => 0,
+            ]
+        );
+
+        register_setting(
+            self::SETTINGS_GROUP,
+            self::OPT_TEMPLATE_LIMIT,
+            [
+                'type'              => 'integer',
+                'sanitize_callback' => [ __CLASS__, 'sanitize_limit' ],
+                'default'           => 0,
+            ]
+        );
+
+        register_setting(
+            self::SETTINGS_GROUP,
+            self::OPT_USER_LIMIT,
+            [
+                'type'              => 'integer',
+                'sanitize_callback' => [ __CLASS__, 'sanitize_limit' ],
+                'default'           => 0,
+            ]
+        );
+
+        add_action( 'admin_notices', function() {
+            if ( ! current_user_can( 'manage_options' ) ) return;
+            if ( empty( $_GET['page'] ) || $_GET['page'] !== 'woc-contracts-settings' ) return;
+            if ( empty( $_GET['settings-updated'] ) ) return;
+
+            add_settings_error(
+                'woc_contracts_settings',
+                'woc_contracts_settings_saved',
+                '設定已儲存。',
+                'updated'
+            );
+        } );
+
+    }
+
+    public static function sanitize_limit( $value ) {
+        $value = is_numeric( $value ) ? (int) $value : 0;
+        return max( 0, $value );
     }
 
     public static function register_menu() {
 
-        // 先只讓最高權限可見
         if ( ! current_user_can( 'manage_options' ) ) {
             return;
         }
 
-        // 依附在「合約」CPT 的選單底下（跟備份/匯入匯出同層）
         if ( ! class_exists( 'WOC_Contracts_CPT' ) ) {
             return;
         }
@@ -31,85 +106,42 @@ class WOC_Contracts_Limits {
 
         add_submenu_page(
             $parent_slug,
-            '設定',                     // page title
-            '設定',                     // menu title
+            '設定',
+            '設定',
             'manage_options',
-            'woc-contracts-settings',   // menu slug
+            'woc-contracts-settings',
             [ __CLASS__, 'render_page' ]
         );
     }
 
     /**
-     * 儲存設定（只存，不啟用任何限制）
+     * 取得上限（0 = 不限）
      */
-    public static function handle_save() {
-        if ( ! is_admin() ) {
-            return;
+    private static function get_limit_for_post_type( $post_type ) {
+        $post_type = (string) $post_type;
+
+        if ( class_exists( 'WOC_Contracts_CPT' ) ) {
+            if ( $post_type === (string) WOC_Contracts_CPT::POST_TYPE_CONTRACT ) {
+                return (int) get_option( self::OPT_CONTRACT_LIMIT, 0 );
+            }
+            if ( $post_type === (string) WOC_Contracts_CPT::POST_TYPE_TEMPLATE ) {
+                return (int) get_option( self::OPT_TEMPLATE_LIMIT, 0 );
+            }
         }
 
-        if ( ! current_user_can( 'manage_options' ) ) {
-            return;
-        }
-
-        if ( empty( $_POST['woc_contracts_limits_action'] ) || $_POST['woc_contracts_limits_action'] !== 'save' ) {
-            return;
-        }
-
-        if ( empty( $_POST['_wpnonce'] ) || ! wp_verify_nonce( $_POST['_wpnonce'], 'woc_contracts_limits_save' ) ) {
-            wp_die( 'Nonce 驗證失敗。' );
-        }
-
-        $contracts_limit  = isset( $_POST['contracts_limit'] ) ? (int) $_POST['contracts_limit'] : 0;
-        $templates_limit  = isset( $_POST['templates_limit'] ) ? (int) $_POST['templates_limit'] : 0;
-        $users_limit      = isset( $_POST['users_limit'] ) ? (int) $_POST['users_limit'] : 0;
-
-        // 允許 0 表示「不限制」
-        $data = [
-            'contracts_limit' => max( 0, $contracts_limit ),
-            'templates_limit' => max( 0, $templates_limit ),
-            'users_limit'     => max( 0, $users_limit ),
-            'updated_at'      => time(),
-        ];
-
-        update_option( self::OPTION_KEY, $data, false );
-
-        // Redirect 避免重送表單
-        $url = add_query_arg(
-            [ 'page' => 'woc-contracts-settings', 'updated' => '1' ],
-            admin_url( 'edit.php?post_type=' . WOC_Contracts_CPT::POST_TYPE_CONTRACT )
-        );
-        wp_safe_redirect( $url );
-        exit;
+        return 0;
     }
 
-    private static function get_settings() {
-        $defaults = [
-            'contracts_limit' => 0,
-            'templates_limit' => 0,
-            'users_limit'     => 0,
-        ];
-
-        $opt = get_option( self::OPTION_KEY, [] );
-        if ( ! is_array( $opt ) ) {
-            $opt = [];
-        }
-
-        return array_merge( $defaults, $opt );
-    }
-
+    /**
+     *  Total：
+     * Total = All（後台「全部」看到的所有狀態，排除 trash） + Trash
+     * => DB 上等於「這個 post_type 全部文章」但排除 auto-draft（避免暫存稿亂跳）
+     */
     private static function count_total_including_trash( $post_type ) {
         global $wpdb;
-    
+
         $post_type = (string) $post_type;
         if ( $post_type === '' ) return 0;
-    
-        // All(不管任何狀態) + Trash(回收桶)
-        // = 這個 post_type 的所有文章總數（任何狀態、含 trash）
-        //
-        // 但「auto-draft」是 WP 新增/編輯時的暫存草稿，會讓數字抖動，
-        // 通常不算進方案限制，否則客戶會覺得你在坑他。
-        //
-        // 如果 auto-draft(WordPress 自動產生的「暫存稿」) 也要算：把下面 AND post_status <> 'auto-draft' 拿掉即可。
 
         $sql = "
             SELECT COUNT(1)
@@ -117,105 +149,304 @@ class WOC_Contracts_Limits {
             WHERE post_type = %s
               AND post_status <> %s
         ";
-    
+
         return (int) $wpdb->get_var(
             $wpdb->prepare( $sql, $post_type, 'auto-draft' )
         );
     }
 
-    private static function count_contracts_all() {
-        if ( ! class_exists( 'WOC_Contracts_CPT' ) ) return 0;
-        return self::count_total_including_trash( WOC_Contracts_CPT::POST_TYPE_CONTRACT );
-    }
-    
-    private static function count_templates_all() {
-        if ( ! class_exists( 'WOC_Contracts_CPT' ) ) return 0;
-        return self::count_total_including_trash( WOC_Contracts_CPT::POST_TYPE_TEMPLATE );
-    }
-    
-    private static function count_users_excluding_admin() {
-        $counts = count_users();
-        if ( empty( $counts['avail_roles'] ) || ! is_array( $counts['avail_roles'] ) ) {
-            return 0;
+    /**
+     * 使用者計數（排除 administrator / super admin）
+     * - 單站：排除 role=administrator
+     * - 多站：排除 blog 管理員 + super admin（site_admins）
+     */
+    private static function count_users_excluding_admins() {
+        global $wpdb;
+
+        $cap_key = $wpdb->get_blog_prefix() . 'capabilities';
+
+        // multisite 的 super admins（若非 multisite 會回空）
+        $super_admins = [];
+        if ( is_multisite() ) {
+            $super_admins = (array) get_site_option( 'site_admins', [] );
+            $super_admins = array_filter( array_map( 'sanitize_user', $super_admins ) );
         }
-    
-        $total = 0;
-        foreach ( $counts['avail_roles'] as $role => $n ) {
-            if ( $role === 'administrator' ) continue;
-            $total += (int) $n;
+
+        $where_super_admin = '';
+        if ( ! empty( $super_admins ) ) {
+            // 用 user_login 排除 super admin
+            $placeholders = implode( ',', array_fill( 0, count( $super_admins ), '%s' ) );
+            $where_super_admin = " AND u.user_login NOT IN ($placeholders) ";
         }
-    
-        return (int) $total;
-    }    
+
+        // capabilities 是序列化字串，直接 LIKE '%\"administrator\";b:1%'
+        $like_admin = '%"administrator"%';
+
+        $sql = "
+            SELECT COUNT(DISTINCT u.ID)
+            FROM {$wpdb->users} u
+            LEFT JOIN {$wpdb->usermeta} um
+                   ON um.user_id = u.ID
+                  AND um.meta_key = %s
+            WHERE ( um.meta_value IS NULL OR um.meta_value NOT LIKE %s )
+            $where_super_admin
+        ";
+
+        $params = [ $cap_key, $like_admin ];
+        if ( ! empty( $super_admins ) ) {
+            $params = array_merge( $params, $super_admins );
+        }
+
+        return (int) $wpdb->get_var( $wpdb->prepare( $sql, $params ) );
+    }
+
+    /**
+     * 使用者上限（0 = 不限）
+     */
+    private static function get_user_limit() {
+        return (int) get_option( self::OPT_USER_LIMIT, 0 );
+    }
+
+    /**
+     * UI 層攔截：進新增使用者頁就擋
+     */
+    public static function maybe_block_user_new() {
+        if ( ! is_admin() ) return;
+        if ( ! current_user_can( 'create_users' ) ) return;
+
+        $limit = self::get_user_limit();
+        if ( $limit <= 0 ) return;
+
+        $total = self::count_users_excluding_admins();
+
+        if ( $total >= $limit ) {
+            $list_url = admin_url( 'users.php' );
+            $title    = '使用者上限已達';
+
+            $msg = sprintf(
+                '%s<br><br>上限：%d<br>目前數量：%d（排除管理員）<br><br>請刪除不需要的使用者後再新增。<br><br><a href="%s">回到使用者列表</a>',
+                esc_html( $title ),
+                (int) $limit,
+                (int) $total,
+                esc_url( $list_url )
+            );
+
+            wp_die( $msg, esc_html( $title ), [ 'response' => 403 ] );
+        }
+    }
+
+    /**
+     * 寫入層攔截：後台新增使用者送出前擋（只擋新增，不擋更新）
+     */
+    public static function maybe_block_user_admin_create( $errors, $update, $user ) {
+        if ( $update ) return;
+        if ( ! is_admin() ) return;
+        if ( ! current_user_can( 'create_users' ) ) return;
+
+        $limit = self::get_user_limit();
+        if ( $limit <= 0 ) return;
+
+        // 如果這次要建立的就是 administrator，就不計入限制，也不擋（因為你規則是排除管理員）
+        $new_roles = [];
+        if ( isset( $_POST['role'] ) ) {
+            $new_roles[] = sanitize_text_field( wp_unslash( $_POST['role'] ) );
+        }
+        if ( in_array( 'administrator', $new_roles, true ) ) {
+            return;
+        }
+
+        $total = self::count_users_excluding_admins();
+
+        if ( $total >= $limit ) {
+            $errors->add(
+                'woc_user_limit_reached',
+                sprintf(
+                    '使用者上限已達（上限：%d，目前：%d，排除管理員）。請先刪除不需要的使用者。',
+                    (int) $limit,
+                    (int) $total
+                )
+            );
+        }
+    }
+
+    /**
+     * 前台註冊攔截（有開放註冊時）
+     */
+    public static function maybe_block_user_registration( $errors, $sanitized_user_login, $user_email ) {
+
+        $limit = self::get_user_limit();
+        if ( $limit <= 0 ) return $errors;
+
+        // 前台註冊通常不會是 administrator，但保守起見仍照同一規則計數
+        $total = self::count_users_excluding_admins();
+
+        if ( $total >= $limit ) {
+            $errors->add(
+                'woc_user_limit_reached',
+                sprintf(
+                    '已達使用者上限（上限：%d，目前：%d，排除管理員）。目前暫停註冊。',
+                    (int) $limit,
+                    (int) $total
+                )
+            );
+        }
+
+        return $errors;
+    }
+
+    /**
+     * UI 層攔截：進新增頁就擋
+     */
+    public static function maybe_block_post_new() {
+        if ( ! is_admin() ) return;
+        if ( ! class_exists( 'WOC_Contracts_CPT' ) ) return;
+
+        $post_type = isset( $_GET['post_type'] ) ? sanitize_key( $_GET['post_type'] ) : 'post';
+
+        $contract_pt = (string) WOC_Contracts_CPT::POST_TYPE_CONTRACT;
+        $template_pt = (string) WOC_Contracts_CPT::POST_TYPE_TEMPLATE;
+
+        if ( $post_type !== $contract_pt && $post_type !== $template_pt ) {
+            return;
+        }
+
+        $limit = self::get_limit_for_post_type( $post_type );
+        if ( $limit <= 0 ) return;
+
+        $total = self::count_total_including_trash( $post_type );
+
+        if ( $total >= $limit ) {
+            $list_url = admin_url( 'edit.php?post_type=' . $post_type );
+            $title    = ( $post_type === $contract_pt ) ? '合約上限已達' : '範本上限已達';
+
+            $msg = sprintf(
+                '%s<br><br>上限：%d<br>目前數量：%d（含回收桶）<br><br>請刪除不需要的內容並清空回收桶後再新增。<br><br><a href="%s">回到列表</a>',
+                esc_html( $title ),
+                (int) $limit,
+                (int) $total,
+                esc_url( $list_url )
+            );
+
+            wp_die( $msg, esc_html( $title ), [ 'response' => 403 ] );
+        }
+    }
+
+    /**
+     * 寫入層攔截：送出新增也擋（防繞過）
+     */
+    public static function maybe_block_post_insert( $data, $postarr ) {
+        if ( ! is_admin() ) return $data;
+        if ( ! class_exists( 'WOC_Contracts_CPT' ) ) return $data;
+
+        // 只擋新增，不擋更新
+        $id = isset( $postarr['ID'] ) ? (int) $postarr['ID'] : 0;
+        if ( $id > 0 ) return $data;
+
+        if ( defined( 'DOING_AUTOSAVE' ) && DOING_AUTOSAVE ) return $data;
+
+        $post_type = isset( $data['post_type'] ) ? (string) $data['post_type'] : '';
+
+        $contract_pt = (string) WOC_Contracts_CPT::POST_TYPE_CONTRACT;
+        $template_pt = (string) WOC_Contracts_CPT::POST_TYPE_TEMPLATE;
+
+        if ( $post_type !== $contract_pt && $post_type !== $template_pt ) {
+            return $data;
+        }
+
+        $limit = self::get_limit_for_post_type( $post_type );
+        if ( $limit <= 0 ) return $data;
+
+        $total = self::count_total_including_trash( $post_type );
+
+        if ( $total >= $limit ) {
+            $list_url = admin_url( 'edit.php?post_type=' . $post_type );
+            $title    = ( $post_type === $contract_pt ) ? '合約上限已達' : '範本上限已達';
+
+            $msg = sprintf(
+                '%s<br><br>上限：%d<br>目前數量：%d（含回收桶）<br><br>請刪除不需要的內容並清空回收桶後再新增。<br><br><a href="%s">回到列表</a>',
+                esc_html( $title ),
+                (int) $limit,
+                (int) $total,
+                esc_url( $list_url )
+            );
+
+            wp_die( $msg, esc_html( $title ), [ 'response' => 403 ] );
+        }
+
+        return $data;
+    }
 
     public static function render_page() {
         if ( ! current_user_can( 'manage_options' ) ) {
             return;
         }
 
-        $s = self::get_settings();
-        $cur_contracts = self::count_contracts_all();
-        $cur_templates = self::count_templates_all();
-        $cur_users     = self::count_users_excluding_admin();
+        $contract_limit = (int) get_option( self::OPT_CONTRACT_LIMIT, 0 );
+        $template_limit = (int) get_option( self::OPT_TEMPLATE_LIMIT, 0 );
+        $user_limit     = (int) get_option( self::OPT_USER_LIMIT, 0 );
 
+        $contract_total = 0;
+        $template_total = 0;
+
+        if ( class_exists( 'WOC_Contracts_CPT' ) ) {
+            $contract_total = self::count_total_including_trash( WOC_Contracts_CPT::POST_TYPE_CONTRACT );
+            $template_total = self::count_total_including_trash( WOC_Contracts_CPT::POST_TYPE_TEMPLATE );
+        }
+
+        // 使用者目前數量（排除管理員）
+        $user_total = self::count_users_excluding_admins();
 
         echo '<div class="wrap">';
         echo '<h1>' . esc_html__( '設定', 'woc-contracts' ) . '</h1>';
+        settings_errors( 'woc_contracts_settings' );
 
-        if ( isset( $_GET['updated'] ) && $_GET['updated'] === '1' ) {
-            echo '<div class="notice notice-success is-dismissible"><p>' . esc_html__( '已儲存。', 'woc-contracts' ) . '</p></div>';
-        }
-
-        echo '<form method="post" action="">';
-        wp_nonce_field( 'woc_contracts_limits_save' );
-
-        echo '<input type="hidden" name="woc_contracts_limits_action" value="save" />';
+        echo '<form method="post" action="options.php">';
+        settings_fields( self::SETTINGS_GROUP );
 
         echo '<table class="form-table" role="presentation">';
-        echo '<tbody>';
 
         // 合約上限
         echo '<tr>';
         echo '<th scope="row">';
-        echo '<label for="contracts_limit">' . esc_html__( '合約上限', 'woc-contracts' ) . '</label> ';
-        echo '<span class="dashicons dashicons-editor-help" style="vertical-align:middle; cursor:help;" title="計算規則：所有狀態都算（含回收桶 trash）。狀態：publish/draft/pending/private/future/trash/auto-draft/inherit。0 = 不限制。"></span>';
+        echo esc_html__( '合約上限', 'woc-contracts' ) . ' ';
+        echo '<span class="dashicons dashicons-editor-help" title="0 = 不限制。計數規則：Total = 全部(不含回收桶) + 回收桶；排除 auto-draft。"></span>';
         echo '</th>';
         echo '<td>';
-        echo '<input name="contracts_limit" id="contracts_limit" type="number" min="0" step="1" value="' . esc_attr( (int) $s['contracts_limit'] ) . '" class="small-text" />';
-        echo '<p class="description">目前數量：' . esc_html( number_format_i18n( $cur_contracts ) ) . '（含回收桶）</p>';
+        echo '<input type="number" min="0" step="1" name="' . esc_attr( self::OPT_CONTRACT_LIMIT ) . '" value="' . esc_attr( $contract_limit ) . '" class="small-text" />';
+        echo '<p class="description">' . sprintf( '目前數量：%d（含回收桶）', (int) $contract_total ) . '</p>';
         echo '</td>';
         echo '</tr>';
 
         // 範本上限
         echo '<tr>';
         echo '<th scope="row">';
-        echo '<label for="templates_limit">' . esc_html__( '範本上限', 'woc-contracts' ) . '</label> ';
-        echo '<span class="dashicons dashicons-editor-help" style="vertical-align:middle; cursor:help;" title="計算規則：所有狀態都算（含回收桶 trash）。狀態：publish/draft/pending/private/future/trash/auto-draft/inherit。0 = 不限制。"></span>';
+        echo esc_html__( '範本上限', 'woc-contracts' ) . ' ';
+        echo '<span class="dashicons dashicons-editor-help" title="0 = 不限制。計數規則同上（含回收桶；排除 auto-draft）。"></span>';
         echo '</th>';
         echo '<td>';
-        echo '<input name="templates_limit" id="templates_limit" type="number" min="0" step="1" value="' . esc_attr( (int) $s['templates_limit'] ) . '" class="small-text" />';
-        echo '<p class="description">目前數量：' . esc_html( number_format_i18n( $cur_templates ) ) . '（含回收桶）</p>';
+        echo '<input type="number" min="0" step="1" name="' . esc_attr( self::OPT_TEMPLATE_LIMIT ) . '" value="' . esc_attr( $template_limit ) . '" class="small-text" />';
+        echo '<p class="description">' . sprintf( '目前數量：%d（含回收桶）', (int) $template_total ) . '</p>';
         echo '</td>';
         echo '</tr>';
 
         // 使用者上限
         echo '<tr>';
         echo '<th scope="row">';
-        echo '<label for="users_limit">' . esc_html__( '使用者上限', 'woc-contracts' ) . '</label> ';
-        echo '<span class="dashicons dashicons-editor-help" style="vertical-align:middle; cursor:help;" title="計算規則：排除網站管理員（administrator），其餘全部計入。0 = 不限制。"></span>';
+        echo esc_html__( '使用者上限', 'woc-contracts' ) . ' ';
+        echo '<span class="dashicons dashicons-editor-help" title="0 = 不限制。計數規則：排除 administrator / super admin。"></span>';
         echo '</th>';
         echo '<td>';
-        echo '<input name="users_limit" id="users_limit" type="number" min="0" step="1" value="' . esc_attr( (int) $s['users_limit'] ) . '" class="small-text" />';
-        echo '<p class="description">目前數量：' . esc_html( number_format_i18n( $cur_users ) ) . '（排除 administrator）</p>';
+        echo '<input type="number" min="0" step="1" name="' . esc_attr( self::OPT_USER_LIMIT ) . '" value="' . esc_attr( $user_limit ) . '" class="small-text" />';
+        echo '<p class="description">' . sprintf( '目前數量：%d（排除管理員）', (int) $user_total ) . '</p>';
         echo '</td>';
         echo '</tr>';
 
-        echo '</tbody>';
         echo '</table>';
 
-        submit_button( __( '儲存設定', 'woc-contracts' ) );
+        submit_button( '儲存設定' );
 
         echo '</form>';
         echo '</div>';
     }
+
 }
