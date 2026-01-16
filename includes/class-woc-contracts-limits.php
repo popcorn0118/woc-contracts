@@ -84,7 +84,6 @@ class WOC_Contracts_Limits {
                 'updated'
             );
         } );
-
     }
 
     public static function sanitize_limit( $value ) {
@@ -174,13 +173,12 @@ class WOC_Contracts_Limits {
 
         $where_super_admin = '';
         if ( ! empty( $super_admins ) ) {
-            // 用 user_login 排除 super admin
             $placeholders = implode( ',', array_fill( 0, count( $super_admins ), '%s' ) );
             $where_super_admin = " AND u.user_login NOT IN ($placeholders) ";
         }
 
-        // capabilities 是序列化字串，直接 LIKE '%\"administrator\";b:1%'
-        $like_admin = '%"administrator"%';
+        // 更精準：序列化字串中 administrator 且為 true
+        $like_admin = '%"administrator";b:1%';
 
         $sql = "
             SELECT COUNT(DISTINCT u.ID)
@@ -224,14 +222,14 @@ class WOC_Contracts_Limits {
             $title    = '使用者上限已達';
 
             $msg = sprintf(
-                '%s<br><br>上限：%d<br>目前數量：%d（排除管理員）<br><br>請刪除不需要的使用者後再新增。<br><br><a href="%s">回到使用者列表</a>',
+                '<h2>%s</h2><br>上限：%d<br>目前數量：%d（排除管理員）<br><br>請刪除不需要的使用者後再新增。<br><br><a href="%s">回到使用者列表</a>',
                 esc_html( $title ),
                 (int) $limit,
                 (int) $total,
                 esc_url( $list_url )
             );
 
-            wp_die( $msg, esc_html( $title ), [ 'response' => 403 ] );
+            wp_die( $msg, '', [ 'response' => 403 ] );
         }
     }
 
@@ -246,12 +244,12 @@ class WOC_Contracts_Limits {
         $limit = self::get_user_limit();
         if ( $limit <= 0 ) return;
 
-        // 如果這次要建立的就是 administrator，就不計入限制，也不擋（因為你規則是排除管理員）
-        $new_roles = [];
+        // 如果這次要建立的就是 administrator，就不計入限制，也不擋
+        $role = '';
         if ( isset( $_POST['role'] ) ) {
-            $new_roles[] = sanitize_text_field( wp_unslash( $_POST['role'] ) );
+            $role = sanitize_text_field( wp_unslash( $_POST['role'] ) );
         }
-        if ( in_array( 'administrator', $new_roles, true ) ) {
+        if ( $role === 'administrator' ) {
             return;
         }
 
@@ -277,7 +275,6 @@ class WOC_Contracts_Limits {
         $limit = self::get_user_limit();
         if ( $limit <= 0 ) return $errors;
 
-        // 前台註冊通常不會是 administrator，但保守起見仍照同一規則計數
         $total = self::count_users_excluding_admins();
 
         if ( $total >= $limit ) {
@@ -320,14 +317,14 @@ class WOC_Contracts_Limits {
             $title    = ( $post_type === $contract_pt ) ? '合約上限已達' : '範本上限已達';
 
             $msg = sprintf(
-                '%s<br><br>上限：%d<br>目前數量：%d（含回收桶）<br><br>請刪除不需要的內容並清空回收桶後再新增。<br><br><a href="%s">回到列表</a>',
+                '<h2>%s</h2><br>上限：%d<br>目前數量：%d（含回收桶）<br><br>請刪除不需要的內容並清空回收桶後再新增。<br><br><a href="%s">回到列表</a>',
                 esc_html( $title ),
                 (int) $limit,
                 (int) $total,
                 esc_url( $list_url )
             );
 
-            wp_die( $msg, esc_html( $title ), [ 'response' => 403 ] );
+            wp_die( $msg, '', [ 'response' => 403 ] );
         }
     }
 
@@ -363,14 +360,14 @@ class WOC_Contracts_Limits {
             $title    = ( $post_type === $contract_pt ) ? '合約上限已達' : '範本上限已達';
 
             $msg = sprintf(
-                '%s<br><br>上限：%d<br>目前數量：%d（含回收桶）<br><br>請刪除不需要的內容並清空回收桶後再新增。<br><br><a href="%s">回到列表</a>',
+                '<h2>%s</h2><br>上限：%d<br>目前數量：%d（含回收桶）<br><br>請刪除不需要的內容並清空回收桶後再新增。<br><br><a href="%s">回到列表</a>',
                 esc_html( $title ),
                 (int) $limit,
                 (int) $total,
                 esc_url( $list_url )
             );
 
-            wp_die( $msg, esc_html( $title ), [ 'response' => 403 ] );
+            wp_die( $msg, '', [ 'response' => 403 ] );
         }
 
         return $data;
