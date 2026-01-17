@@ -192,7 +192,7 @@ class WOC_Contracts_PDF {
             return get_post_meta( $contract_id, self::META_PDF_PATH, true );
         }
 
-        // 產 HTML（提供 filter 讓你之後換成正式列印模板）
+        // 產 HTML（吃同一份 contract-public.php）
         $html = self::render_pdf_html( $contract_id );
         if ( ! $html ) {
             return new WP_Error( 'empty_html', 'Empty PDF HTML.' );
@@ -211,7 +211,13 @@ class WOC_Contracts_PDF {
         $filename = self::build_filename( $contract_id );
         $abs_path = trailingslashit( $dirs['pdf_dir'] ) . $filename;
 
-        // mPDF
+        // mPDF（若未載入，嘗試補載 autoload）
+        if ( ! class_exists( '\Mpdf\Mpdf' ) ) {
+            $autoload = defined( 'WOC_CONTRACTS_PATH' ) ? WOC_CONTRACTS_PATH . 'vendor/autoload.php' : '';
+            if ( $autoload && file_exists( $autoload ) ) {
+                require_once $autoload;
+            }
+        }
         if ( ! class_exists( '\Mpdf\Mpdf' ) ) {
             return new WP_Error( 'mpdf_missing', 'mPDF not loaded.' );
         }
@@ -220,6 +226,9 @@ class WOC_Contracts_PDF {
 
             $mpdf = new \Mpdf\Mpdf( [
                 'tempDir' => $dirs['tmp_dir'],
+                // ✅ 先救中文：自動依語系選字型（下一關才做字型嵌入）
+                'autoScriptToLang' => true,
+                'autoLangToFont'   => true,
             ] );
 
             $mpdf->WriteHTML( $html );
@@ -280,41 +289,86 @@ class WOC_Contracts_PDF {
     }
 
     /**
-     * 產 PDF 用 HTML（先給最小可跑版本；你之後用 filter 換成正式模板）
+     * 產 PDF 用 HTML：吃 templates/contract-public.php（跟瀏覽器列印同源）
      */
     public static function render_pdf_html( $contract_id ) {
 
+        $contract_id = absint( $contract_id );
+        if ( ! $contract_id ) return '';
+
+        global $post;
         $post = get_post( $contract_id );
         if ( ! $post ) return '';
 
-        $title   = get_the_title( $contract_id );
-        $content = apply_filters( 'the_content', $post->post_content );
+        setup_postdata( $post );
 
-        $html  = '<!doctype html><html><head><meta charset="utf-8">';
-        $html .= '<style>body{font-family: sans-serif; font-size: 12pt;} h1{font-size:18pt;margin:0 0 12pt;} .meta{color:#666;font-size:10pt;margin:0 0 16pt;}</style>';
-        $html .= '</head><body>';
-        $html .= '<h1>' . esc_html( $title ) . '</h1>';
-        $html .= '<div class="meta">Contract ID: ' . intval( $contract_id ) . '</div>';
-        $html .= $content;
-        $html .= '</body></html>';
+        ob_start();
 
-        /**
-         * 你之後正式版在這裡接：回傳完整 HTML（含 inline css）
-         * apply_filters( 'woc_contracts_pdf_html', $html, $contract_id )
-         */
-        return apply_filters( 'woc_contracts_pdf_html', $html, $contract_id );
+        // 讓 template 知道：現在是 PDF 輸出（你可以在 template 內用它來隱藏按鈕/略過 token 檢查）
+        if ( ! defined( 'WOC_PDF_RENDERING' ) ) {
+            define( 'WOC_PDF_RENDERING', true );
+        }
+
+        // ✅ 直接吃你前台合約模板
+        $tpl = WOC_CONTRACTS_PATH . 'templates/contract-public.php';
+        if ( file_exists( $tpl ) ) {
+            echo '<div style="border:3px solid red;padding:10px;">PDF TEMPLATE START</div>';
+include $tpl;
+echo '<div style="border:3px solid red;padding:10px;">PDF TEMPLATE END</div>';
+        } else {
+            echo '<h1>' . esc_html( get_the_title( $contract_id ) ) . '</h1>';
+            echo '<p>Template not found.</p>';
+        }
+
+        $body = ob_get_clean();
+
+wp_reset_postdata();
+
+// ✅ 保險：template 沒輸出就 fallback（避免產出白紙）
+if ( trim( wp_strip_all_tags( $body ) ) === '' ) {
+    $body  = '<h1>' . esc_html( get_the_title( $contract_id ) ) . '</h1>';
+    $body .= wpautop( wp_kses_post( $post->post_content ) );
+}
+
+        // 用完整 HTML 包起來（避免 mPDF 沒 head/body）
+        $full  = '<!doctype html><html><head><meta charset="utf-8">';
+        $full .= self::get_pdf_inline_css();
+        $full .= '</head><body>';
+        $full .= $body;
+        $full .= '</body></html>';
+
+        return apply_filters( 'woc_contracts_pdf_html', $full, $contract_id );
     }
 
     /**
-     * 判斷是否已簽署（提供 filter 讓你對接你實際狀態值）
+     * 把前台 CSS 直接 inline 給 mPDF
+     */
+    public static function get_pdf_inline_css() {
+
+        $css = '';
+
+        $css_file = WOC_CONTRACTS_PATH . 'assets/css/woc-contracts-frontend.css';
+        if ( file_exists( $css_file ) ) {
+            $css .= file_get_contents( $css_file );
+        }
+
+        $base = '
+            @page { size: A4; margin: 18mm 16mm; }
+            body { font-size: 12pt; line-height: 1.6; }
+            img { max-width: 100%; height: auto; }
+        ';
+
+        return '<style>' . $base . "\n" . $css . '</style>';
+    }
+
+    /**
+     * 判斷是否已簽署
      */
     public static function is_signed( $contract_id ) {
 
-        // 預設：狀態 meta key 優先使用 WOC_Contracts_CPT::META_STATUS
         $status_key = defined( 'WOC_Contracts_CPT::META_STATUS' ) ? WOC_Contracts_CPT::META_STATUS : '_woc_status';
         $status     = get_post_meta( absint( $contract_id ), $status_key, true );
 
-        // 預設已簽署值：signed（你可用 filter 改）
         $signed_value = apply_filters( 'woc_contracts_signed_status_value', 'signed', absint( $contract_id ) );
 
         return ( (string) $status === (string) $signed_value );

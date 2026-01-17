@@ -15,7 +15,8 @@ if ( ! defined( 'ABSPATH' ) ) {
  * 基本常數（加防呆，避免重複定義）
  */
 if ( ! defined( 'WOC_CONTRACTS_VERSION' ) ) {
-    define( 'WOC_CONTRACTS_VERSION', '0.1.0' );
+    // ✅ 跟外掛標頭版本一致（避免資產快取版本混亂）
+    define( 'WOC_CONTRACTS_VERSION', '1.1.0' );
 }
 
 if ( ! defined( 'WOC_CONTRACTS_FILE' ) ) {
@@ -35,6 +36,15 @@ if ( ! defined( 'WOC_CONTRACTS_URL' ) ) {
     define( 'WOC_CONTRACTS_URL', plugin_dir_url( __FILE__ ) );
 }
 
+/**
+ * Composer autoload（mPDF）
+ * 必須在載入任何會用到 mPDF 的 class 之前
+ */
+$autoload = WOC_CONTRACTS_PATH . 'vendor/autoload.php';
+if ( file_exists( $autoload ) ) {
+    require_once $autoload;
+}
+
 
 // 不分前後台都要載入
 require_once WOC_CONTRACTS_PATH . 'includes/class-woc-contracts-cpt.php';        // 註冊 CPT / meta key / 基礎常數
@@ -46,13 +56,10 @@ require_once WOC_CONTRACTS_PATH . 'includes/class-woc-contracts-frontend.php';  
 // 後台才需要的再載入
 if ( is_admin() ) {
     require_once WOC_CONTRACTS_PATH . 'includes/class-woc-contracts-limits.php';     // 方案限制引擎（合約/範本/使用者上限）
-    require_once WOC_CONTRACTS_PATH . 'includes/class-woc-contracts-admin.php';  // 後台 UI / metabox / ajax 等
-    require_once WOC_CONTRACTS_PATH . 'includes/class-woc-contracts-backup.php'; // 備份/匯入匯出（後台頁面 + admin-post）
+    require_once WOC_CONTRACTS_PATH . 'includes/class-woc-contracts-admin.php';      // 後台 UI / metabox / ajax 等
+    require_once WOC_CONTRACTS_PATH . 'includes/class-woc-contracts-backup.php';     // 備份/匯入匯出（後台頁面 + admin-post）
+    require_once WOC_CONTRACTS_PATH . 'includes/class-woc-contracts-pdf.php';        // PDF
 }
-
-
-
-
 
 /**
  * 主插件類別（之後所有功能都掛在這裡）
@@ -94,7 +101,7 @@ final class WOC_Contracts_Plugin {
             WOC_Contracts_CPT::init();
         }
 
-                // 前台/簽署流程（含 admin-post 簽署入口）
+        // 前台/簽署流程（含 admin-post 簽署入口）
         if ( class_exists( 'WOC_Contracts_Frontend' ) && method_exists( 'WOC_Contracts_Frontend', 'init' ) ) {
             WOC_Contracts_Frontend::init();
         }
@@ -115,11 +122,15 @@ final class WOC_Contracts_Plugin {
             if ( class_exists( 'WOC_Contracts_Backup' ) && method_exists( 'WOC_Contracts_Backup', 'init' ) ) {
                 WOC_Contracts_Backup::init();
             }
+
+            // ✅ PDF（列表 row actions / 下載 / 異常修復）
+            if ( class_exists( 'WOC_Contracts_PDF' ) && method_exists( 'WOC_Contracts_PDF', 'init' ) ) {
+                WOC_Contracts_PDF::init();
+            }
         }
 
         add_action( 'admin_notices', [ $this, 'admin_notice_phase0' ] );
     }
-
 
     /**
      * 外掛啟用時執行
