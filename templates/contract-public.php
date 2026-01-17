@@ -3,33 +3,30 @@ if ( ! defined( 'ABSPATH' ) ) {
     exit;
 }
 
-// ✅ PDF 模式：略過 token 檢查、略過 redirect / exit、不要載入 header/footer、不要輸出簽名互動
-$is_pdf = defined( 'WOC_PDF_RENDERING' ) && WOC_PDF_RENDERING;
-
-if ( ! $is_pdf ) {
-    get_header();
-}
+get_header();
 
 global $post;
 
-$contract_id = isset( $post->ID ) ? (int) $post->ID : 0;
+$contract_id = $post->ID;
 
 $required_token = get_post_meta( $contract_id, WOC_Contracts_CPT::META_VIEW_TOKEN, true );
 $given_token    = isset( $_GET['t'] ) ? sanitize_text_field( wp_unslash( $_GET['t'] ) ) : '';
 
-// ✅ PDF 模式一律視為有效（因為是系統內部產檔）
-$valid = $is_pdf ? true : ( ! empty( $required_token ) && hash_equals( $required_token, $given_token ) );
+
+$valid = ( ! empty( $required_token ) && hash_equals( $required_token, $given_token ) );
 
 $status        = get_post_meta( $contract_id, WOC_Contracts_CPT::META_STATUS, true );
 $is_signed     = ( $status === 'signed' );
 $signed_at     = get_post_meta( $contract_id, WOC_Contracts_CPT::META_SIGNED_AT, true );
 $signed_ip     = get_post_meta( $contract_id, WOC_Contracts_CPT::META_SIGNED_IP, true );
 $signature_url = get_post_meta( $contract_id, WOC_Contracts_CPT::META_SIGNATURE_IMAGE, true );
+?>
 
+<?php
 $err = isset( $_GET['err'] ) ? sanitize_key( wp_unslash( $_GET['err'] ) ) : '';
 ?>
 
-<?php if ( ! $is_pdf && $valid && $err === 'nonce' ) : ?>
+<?php if ( $valid && $err === 'nonce' ) : ?>
     <div style="padding:10px;border:1px solid #d63638;background:#fff5f5;margin:15px 0;">
         頁面逾時或被快取影響，請重新整理後再簽名。
     </div>
@@ -37,7 +34,6 @@ $err = isset( $_GET['err'] ) ? sanitize_key( wp_unslash( $_GET['err'] ) ) : '';
 
 
 <div class="woc-contract-wrap woc-contract-wrap-print">
-
     <?php if ( ! $valid ) : ?>
 
         <h1 style="text-align:center;font-size:28px;margin-bottom:20px;">合約連結無效</h1>
@@ -46,23 +42,28 @@ $err = isset( $_GET['err'] ) ? sanitize_key( wp_unslash( $_GET['err'] ) ) : '';
     <?php else : ?>
 
         <?php
-        // ✅ PDF 模式不做密碼攔截（不能 exit），前台照舊
-        if ( ! $is_pdf && post_password_required( $post ) ) {
+            // 先擋密碼（且保留 ?t=...）
+            if ( post_password_required( $post ) ) {
 
-            $action   = esc_url( site_url( 'wp-login.php?action=postpass', 'login_post' ) );
-            $redirect = esc_url( add_query_arg( null, null ) );
+                $action   = esc_url( site_url( 'wp-login.php?action=postpass', 'login_post' ) );
+                $redirect = esc_url( add_query_arg( null, null ) );
 
-            echo '<form class="post-password-form" action="' . $action . '" method="post">';
-            echo '<p>此內容受密碼保護。若要查看此內容，請在下方輸入密碼。</p>';
-            echo '<p><label>密碼 <input name="post_password" type="password" size="20" /></label> ';
-            echo '<input type="submit" name="Submit" value="送出" /></p>';
-            echo '<input type="hidden" name="redirect_to" value="' . $redirect . '">';
-            echo '</form>';
+                echo '<form class="post-password-form" action="' . $action . '" method="post">';
+                echo '<p>此內容受密碼保護。若要查看此內容，請在下方輸入密碼。</p>';
+                echo '<p><label>密碼 <input name="post_password" type="password" size="20" /></label> ';
+                echo '<input type="submit" name="Submit" value="送出" /></p>';
+                echo '<input type="hidden" name="redirect_to" value="' . $redirect . '">';
+                echo '</form>';
 
-            get_footer();
-            exit;
-        }
+                get_footer();
+                exit;
+            }
         ?>
+
+
+        <!-- <h1 style="text-align:center;font-size:28px;margin-bottom:30px;">
+            <?php //echo esc_html( get_the_title( $contract_id ) ); ?>
+        </h1> -->
 
         <div class="woc-contract-content">
             <?php
@@ -73,7 +74,6 @@ $err = isset( $_GET['err'] ) ? sanitize_key( wp_unslash( $_GET['err'] ) ) : '';
                 $content = woc_replace_contract_vars( $content );
             }
 
-            // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
             echo $content;
             ?>
         </div>
@@ -82,13 +82,10 @@ $err = isset( $_GET['err'] ) ? sanitize_key( wp_unslash( $_GET['err'] ) ) : '';
 
             <?php if ( $is_signed ) : ?>
 
-                <h2 class="signUsingTitle <?php echo $is_pdf ? '' : 'no-print'; ?>"><span>簽署資訊</span></h2>
+                <h2 class="signUsingTitle no-print"><span>簽署資訊</span></h2>
 
                 <?php if ( $signature_url ) : ?>
-                    <?php if ( ! $is_pdf ) : ?>
-                        <p class="no-print">簽名：</p>
-                    <?php endif; ?>
-
+                    <p class="no-print">簽名：</p>
                     <div class="woc-signature-image-box">
                         <img src="<?php echo esc_url( $signature_url ); ?>" alt="Signature" class="woc-signature-image">
                     </div>
@@ -102,61 +99,55 @@ $err = isset( $_GET['err'] ) ? sanitize_key( wp_unslash( $_GET['err'] ) ) : '';
                     <?php if ( $signed_ip ) : ?>
                         <p>簽署 IP：<?php echo esc_html( $signed_ip ); ?></p>
                     <?php endif; ?>
+                    <p class="no-print" style="margin-bottom:15px;">此合約已完成簽署，內容僅供檢視與列印。</p>
+                </div>
+                
 
-                    <?php if ( ! $is_pdf ) : ?>
-                        <p class="no-print" style="margin-bottom:15px;">此合約已完成簽署，內容僅供檢視與列印。</p>
-                    <?php endif; ?>
+                
+
+                <div class="woc-button-warp no-print">
+                    <button type="button" id="woc-print" onclick="window.print();">列印合約</button>
                 </div>
 
-                <?php if ( ! $is_pdf ) : ?>
-                    <div class="woc-button-warp no-print">
-                        <button type="button" id="woc-print" onclick="window.print();">列印合約</button>
-                    </div>
-                <?php endif; ?>
-
-            <?php else : ?>
-
-                <?php if ( $is_pdf ) : ?>
-                    <!-- PDF 模式：未簽署不提供簽名互動（避免空白、避免 script） -->
-                    <p style="text-align:center;color:#666;margin-top:20px;">（此合約尚未簽署）</p>
                 <?php else : ?>
 
-                    <h2 class="signUsingTitle"><span>簽　名</span></h2>
-                    <p class="signUsing">請使用手寫筆或滑鼠或手指簽名以授權此合約。通過電子簽名此文檔，表示您同意上面建立的條款。文檔簽名後，您可以列印保存。</p>
+                <h2 class="signUsingTitle"><span>簽　名</span></h2>
+                <p class="signUsing">請使用手寫筆或滑鼠或手指簽名以授權此合約。通過電子簽名此文檔，表示您同意上面建立的條款。文檔簽名後，您可以列印保存。</p>
 
-                    <div>
-                        <!-- 拿掉固定 width/height，交給 JS 依容器寬度設定 -->
-                        <canvas id="woc-signature-pad"></canvas>
+                <div>
+                    <!-- 拿掉固定 width/height，交給 JS 依容器寬度設定 -->
+                    <canvas id="woc-signature-pad"></canvas>
+                </div>
+
+                <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>"
+                    id="woc-sign-form" style="margin-top:15px;">
+
+                    <input type="hidden" name="action" value="woc_sign_contract">
+                    <input type="hidden" name="woc_contract_id" value="<?php echo esc_attr( $contract_id ); ?>">
+                    <input type="hidden" name="woc_token" value="<?php echo esc_attr( $given_token ); ?>">
+                    <input type="hidden" name="woc_signature_data" id="woc_signature_data" value="">
+                    <?php wp_nonce_field( 'woc_sign_contract_' . $contract_id, 'woc_sign_nonce' ); ?>
+
+                    <div class="woc-button-warp">
+                        <button type="button" id="woc-clear-signature">清除簽名</button>
+                        <button type="submit" id="woc-submit-signature">送出簽名</button>
                     </div>
+                    
+                </form>
 
-                    <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>"
-                        id="woc-sign-form" style="margin-top:15px;">
-
-                        <input type="hidden" name="action" value="woc_sign_contract">
-                        <input type="hidden" name="woc_contract_id" value="<?php echo esc_attr( $contract_id ); ?>">
-                        <input type="hidden" name="woc_token" value="<?php echo esc_attr( $given_token ); ?>">
-                        <input type="hidden" name="woc_signature_data" id="woc_signature_data" value="">
-                        <?php wp_nonce_field( 'woc_sign_contract_' . $contract_id, 'woc_sign_nonce' ); ?>
-
-                        <div class="woc-button-warp">
-                            <button type="button" id="woc-clear-signature">清除簽名</button>
-                            <button type="submit" id="woc-submit-signature">送出簽名</button>
-                        </div>
-
-                    </form>
-
-                <?php endif; ?>
+                <!-- <p style="margin-top:10px;font-size:12px;color:#666;">
+                    送出後合約內容將鎖定，如需修改請聯絡承辦人員重新建立合約。
+                </p> -->
 
             <?php endif; ?>
-
+            
         </div>
+        
 
     <?php endif; ?>
 </div>
-
 <p class="woc-contract-copyright">技術支援 線上合約</p>
 
-<?php if ( ! $is_pdf ) : ?>
 <script>
 (function () {
     var canvas = document.getElementById('woc-signature-pad');
@@ -173,33 +164,34 @@ $err = isset( $_GET['err'] ) ? sanitize_key( wp_unslash( $_GET['err'] ) ) : '';
     var RATIO_MOBILE  = 3 / 2.5; // 手機比例
 
     function setupCanvasSize() {
-        var cssWidth = canvas.clientWidth || BASE_WIDTH;
+    var cssWidth = canvas.clientWidth || BASE_WIDTH;
 
-        // ✅ 依螢幕寬度切比例（你自己調斷點）
-        var ratio = window.matchMedia('(max-width: 580px)').matches
-            ? RATIO_MOBILE
-            : RATIO_DESKTOP;
+    // ✅ 依螢幕寬度切比例（你自己調斷點）
+    var ratio = window.matchMedia('(max-width: 580px)').matches
+        ? RATIO_MOBILE
+        : RATIO_DESKTOP;
 
-        var BASE_HEIGHT = Math.round(BASE_WIDTH * ratio);
+    var BASE_HEIGHT = Math.round(BASE_WIDTH * ratio);
 
-        canvas.width  = BASE_WIDTH;
-        canvas.height = BASE_HEIGHT;
+    canvas.width  = BASE_WIDTH;
+    canvas.height = BASE_HEIGHT;
 
-        scaleX = BASE_WIDTH / cssWidth;
+    scaleX = BASE_WIDTH / cssWidth;
 
-        var cssHeight = BASE_HEIGHT / scaleX;
-        canvas.style.height = cssHeight + 'px';
+    var cssHeight = BASE_HEIGHT / scaleX;
+    canvas.style.height = cssHeight + 'px';
 
-        // 線寬邏輯照舊…
-        var targetCssStroke;
-        if ( scaleX <= 1.2 ) targetCssStroke = 4;
-        else targetCssStroke = 2.5;
+    // 線寬邏輯照舊…
+    var targetCssStroke;
+    if ( scaleX <= 1.2 ) targetCssStroke = 4;
+    else targetCssStroke = 2.5;
 
-        ctx.lineWidth  = targetCssStroke * scaleX;
-        ctx.lineCap    = 'round';
-        ctx.lineJoin   = 'round';
-        ctx.strokeStyle = '#000';
-    }
+    ctx.lineWidth  = targetCssStroke * scaleX;
+    ctx.lineCap    = 'round';
+    ctx.lineJoin   = 'round';
+    ctx.strokeStyle = '#000';
+}
+
 
     setupCanvasSize();
     window.addEventListener('resize', setupCanvasSize);
@@ -217,6 +209,7 @@ $err = isset( $_GET['err'] ) ? sanitize_key( wp_unslash( $_GET['err'] ) ) : '';
         }
 
         return {
+            // CSS 座標 * scaleX → canvas 解析度座標
             x: (clientX - rect.left) * scaleX,
             y: (clientY - rect.top)  * scaleX
         };
@@ -281,10 +274,23 @@ $err = isset( $_GET['err'] ) ? sanitize_key( wp_unslash( $_GET['err'] ) ) : '';
         });
     }
 })();
+
+
+
+// document.getElementById('woc-print')?.addEventListener('click', function () {
+//   const oldTitle = document.title;
+
+//   // 你要的檔名（不要加 .pdf，讓瀏覽器自己處理）
+//   document.title = '委託契約書_' + (new Date().toISOString().slice(0,10));
+
+//   window.print();
+
+//   // 印完恢復
+//   document.title = oldTitle;
+// });
 </script>
-<?php endif; ?>
+
+
 
 <?php
-if ( ! $is_pdf ) {
-    get_footer();
-}
+get_footer();

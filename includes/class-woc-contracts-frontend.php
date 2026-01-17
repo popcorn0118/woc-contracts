@@ -185,35 +185,6 @@ class WOC_Contracts_Frontend {
         }
         WOC_Contracts_CPT::add_audit_log( $contract_id, $message );
 
-        // ✅ 簽署完成：同步自動產生 PDF（失敗不擋簽署流程，只記錄 log）
-        // ✅ 簽署完成：同步自動產生 PDF（測試階段強制重建，避免一直看到舊檔）
-        if ( class_exists( 'WOC_Contracts_PDF' ) ) {
-
-            $res = WOC_Contracts_PDF::ensure_pdf( $contract_id, true );
-
-            if ( is_wp_error( $res ) ) {
-                WOC_Contracts_CPT::add_audit_log(
-                    $contract_id,
-                    'PDF 產生失敗：' . $res->get_error_message()
-                );
-            } else {
-                WOC_Contracts_CPT::add_audit_log(
-                    $contract_id,
-                    'PDF 已產生：' . $res
-                );
-            }
-
-        } else {
-
-            WOC_Contracts_CPT::add_audit_log(
-                $contract_id,
-                'PDF class not loaded'
-            );
-        }
-
-
-
-
         $redirect = add_query_arg(
             [
                 't'      => $token,
@@ -225,6 +196,9 @@ class WOC_Contracts_Frontend {
         wp_safe_redirect( $redirect );
         exit;
     }
+
+    
+    
 
     /**
      * 合約頁禁快取
