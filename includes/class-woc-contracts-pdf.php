@@ -2,7 +2,7 @@
 if ( ! defined( 'ABSPATH' ) ) {
     exit;
 }
-
+// ⚠️ 使用 SQL 直接刪除合約屬於破壞性維運行為，需同步清理 uploads/woc-contracts/pdfs。
 class WOC_Contracts_PDF {
 
     const META_PDF_PATH         = '_woc_pdf_path';
