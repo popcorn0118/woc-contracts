@@ -21,8 +21,12 @@ class WOC_Contracts_PDF {
         add_action( 'admin_post_woc_download_pdf', [ __CLASS__, 'handle_download' ] );
         add_action( 'admin_post_woc_repair_pdf',   [ __CLASS__, 'handle_repair' ] );
 
-        // 刪除合約時同步刪除 PDF
+        // 刪除合約時同步刪除 PDF（永久刪除）
         add_action( 'before_delete_post', [ __CLASS__, 'handle_before_delete_post' ] );
+
+        // 刪除簽名 / 重簽：簽名 meta 被刪除或清空時，刪 PDF
+        add_action( 'deleted_post_meta', [ __CLASS__, 'handle_deleted_post_meta' ], 10, 4 );
+        add_action( 'updated_post_meta', [ __CLASS__, 'handle_updated_post_meta' ], 10, 4 );
     }
 
     /**
@@ -166,6 +170,82 @@ class WOC_Contracts_PDF {
         }
 
         self::delete_pdf( $post_id );
+    }
+
+    /**
+     * signature/status meta 被刪除時：刪 PDF
+     */
+    public static function handle_deleted_post_meta( $meta_ids, $post_id, $meta_key, $meta_value ) {
+
+        $post_id = absint( $post_id );
+        if ( ! $post_id ) return;
+
+        if ( ! self::is_contract_id( $post_id ) ) return;
+
+        $sig_key    = self::get_contract_meta_key( 'signature' );
+        $status_key = defined( 'WOC_Contracts_CPT::META_STATUS' ) ? WOC_Contracts_CPT::META_STATUS : '_woc_status';
+
+        if ( $meta_key === $sig_key ) {
+            self::delete_pdf( $post_id );
+            return;
+        }
+
+        if ( $meta_key === $status_key ) {
+            $signed_value = apply_filters( 'woc_contracts_signed_status_value', 'signed', absint( $post_id ) );
+            if ( (string) $meta_value === (string) $signed_value ) {
+                self::delete_pdf( $post_id );
+            }
+        }
+    }
+
+    /**
+     * signature/status meta 被更新（含清空）時：刪 PDF
+     */
+    public static function handle_updated_post_meta( $meta_id, $post_id, $meta_key, $meta_value ) {
+
+        $post_id = absint( $post_id );
+        if ( ! $post_id ) return;
+
+        if ( ! self::is_contract_id( $post_id ) ) return;
+
+        $sig_key    = self::get_contract_meta_key( 'signature' );
+        $status_key = defined( 'WOC_Contracts_CPT::META_STATUS' ) ? WOC_Contracts_CPT::META_STATUS : '_woc_status';
+
+        // 簽名被清空（常見於 update_post_meta($id, key, '')）
+        if ( $meta_key === $sig_key ) {
+
+            if ( '' === $meta_value || null === $meta_value ) {
+                self::delete_pdf( $post_id );
+                return;
+            }
+
+            if ( is_string( $meta_value ) && '' === trim( $meta_value ) ) {
+                self::delete_pdf( $post_id );
+                return;
+            }
+
+            return;
+        }
+
+        // 狀態不再是 signed（重簽/重置常會改狀態）
+        if ( $meta_key === $status_key ) {
+
+            $signed_value = apply_filters( 'woc_contracts_signed_status_value', 'signed', absint( $post_id ) );
+
+            if ( (string) $meta_value !== (string) $signed_value ) {
+                self::delete_pdf( $post_id );
+            }
+
+            return;
+        }
+    }
+
+    private static function is_contract_id( $post_id ) {
+
+        $post = get_post( absint( $post_id ) );
+        if ( ! $post ) return false;
+
+        return self::is_contract_post_type( $post->post_type );
     }
 
     /**
