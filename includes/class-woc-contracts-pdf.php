@@ -281,66 +281,6 @@ class WOC_Contracts_PDF {
     }
 
     /**
-     * ✅ 從一段 HTML 中移除所有「可能被塞進去的簽名區塊」
-     */
-    private static function strip_signed_blocks_from_html( $html ) {
-
-        if ( ! is_string( $html ) || $html === '' ) {
-            return $html;
-        }
-
-        $patterns = [
-            // class="... woc-contract-signed ..." (雙引號)
-            '~<div\b[^>]*\bclass\s*=\s*"[^"]*\bwoc-contract-signed\b[^"]*"[^>]*>.*?</div>\s*~is',
-            // class='... woc-contract-signed ...' (單引號)
-            "~<div\\b[^>]*\\bclass\\s*=\\s*'[^']*\\bwoc-contract-signed\\b[^']*'[^>]*>.*?</div>\\s*~is",
-            // class=...woc-contract-signed... (無引號，少見但防一下)
-            '~<div\b[^>]*\bclass\s*=\s*[^\s>]*\bwoc-contract-signed\b[^\s>]*[^>]*>.*?</div>\s*~is',
-
-            // 另外拆開塞的子區塊（就算外層不是 woc-contract-signed，也砍掉）
-            '~<div\b[^>]*\bclass\s*=\s*"[^"]*\bwoc-signature-image-box\b[^"]*"[^>]*>.*?</div>\s*~is',
-            "~<div\\b[^>]*\\bclass\\s*=\\s*'[^']*\\bwoc-signature-image-box\\b[^']*'[^>]*>.*?</div>\\s*~is",
-            '~<div\b[^>]*\bclass\s*=\s*"[^"]*\bwoc-signature-info\b[^"]*"[^>]*>.*?</div>\s*~is',
-            "~<div\\b[^>]*\\bclass\\s*=\\s*'[^']*\\bwoc-signature-info\\b[^']*'[^>]*>.*?</div>\\s*~is",
-        ];
-
-        return preg_replace( $patterns, '', $html );
-    }
-
-    /**
-     * ✅ 最終保險：整份 HTML 若仍有多個 woc-contract-signed，只保留最後一個
-     */
-    private static function keep_last_signed_block_only( $html ) {
-
-        if ( ! is_string( $html ) || $html === '' ) {
-            return $html;
-        }
-
-        $re = '~<div\b[^>]*\bclass\s*=\s*(?:"[^"]*"|\'[^\']*\'|[^\s>]+)[^>]*\bwoc-contract-signed\b[^>]*>.*?</div>\s*~is';
-
-        if ( ! preg_match_all( $re, $html, $m, PREG_OFFSET_CAPTURE ) ) {
-            return $html;
-        }
-
-        if ( count( $m[0] ) <= 1 ) {
-            return $html;
-        }
-
-        // 保留最後一個，其它全部移除
-        $last = end( $m[0] );
-        $last_pos = $last[1];
-        $last_len = strlen( $last[0] );
-
-        $before = substr( $html, 0, $last_pos );
-        $middle = substr( $html, $last_pos, $last_len );
-        $after  = substr( $html, $last_pos + $last_len );
-
-        $before = preg_replace( $re, '', $before );
-
-        return $before . $middle . $after;
-    }
-
-    /**
      * 確保 PDF 存在（不存在就生成；force=true 強制重建）
      */
     public static function ensure_pdf( $contract_id, $force = false ) {
@@ -466,9 +406,7 @@ class WOC_Contracts_PDF {
 
     /**
      * 產 PDF 用 HTML（由 woc-contracts-pdf.css 控制）
-     * - Contract ID 移到底部資訊
-     * - 加上簽名圖 + 簽約時間 + IP
-     * - ✅ 強制去除任何既有的簽名區塊，避免重複
+     * - 加上簽名圖 + 簽約時間 + IP（用 PDF 專用命名空間）
      */
     public static function render_pdf_html( $contract_id ) {
 
@@ -480,12 +418,8 @@ class WOC_Contracts_PDF {
         /**
          * 這裡故意用 the_content：
          * 因為很多站的合約內容可能靠 shortcode / block render 出來。
-         * 但代價是：某些 filter 可能會偷塞簽名區塊 => 我們後面「強制剷掉」
          */
         $content = apply_filters( 'the_content', $post->post_content );
-
-        // ✅ 先把內容內部的簽名區塊剷掉（不管是誰塞的）
-        $content = self::strip_signed_blocks_from_html( $content );
 
         // === 簽名資料 ===
         $sig_src     = self::get_signature_src( $contract_id );
@@ -501,60 +435,43 @@ class WOC_Contracts_PDF {
         $html  = '<!doctype html><html><head><meta charset="utf-8"></head><body>';
         $html .= '<div class="woc-contract-wrap-print">';
 
-        $html .= '<h1>' . esc_html( $title ) . '</h1>';
+        // $html .= '<h1>' . esc_html( $title ) . '</h1>';
 
         $html .= '<div class="woc-contract-content">';
         $html .= $content;
         $html .= '</div>';
 
-        // ✅ 我們唯一允許存在的一份簽名區
+        // PDF 專用簽名區（不跟前台共用 class，避免 CSS/內容互相干擾）
         $signed_block  = '<div class="woc-pdf-signed">';
 
-if ( $sig_src ) {
-    $signed_block .= '<div class="woc-pdf-signed__sig">';
-    $signed_block .= '<img src="' . esc_attr( $sig_src ) . '" alt="Signature">';
-    $signed_block .= '</div>';
-}
+        if ( $sig_src ) {
+            $signed_block .= '<div class="woc-pdf-signed__sig">';
+            $signed_block .= '<img class="woc-pdf-signed__img" src="' . esc_attr( $sig_src ) . '" alt="Signature">';
+            $signed_block .= '</div>';
+        }
 
-$signed_block .= '<div class="woc-pdf-signed__meta">';
-$signed_block .= '<div>Contract ID: ' . intval( $contract_id ) . '</div>';
+        $signed_block .= '<div class="woc-pdf-signed__meta">';
+        $signed_block .= '<div class="woc-pdf-signed__row">Contract ID: ' . intval( $contract_id ) . '</div>';
 
-if ( $signed_time !== '' ) {
-    $signed_block .= '<div>已簽約時間：' . esc_html( $signed_time ) . '</div>';
-}
-if ( $signed_ip !== '' ) {
-    $signed_block .= '<div>簽署 IP：' . esc_html( $signed_ip ) . '</div>';
-}
+        if ( $signed_time !== '' ) {
+            $signed_block .= '<div class="woc-pdf-signed__row">已簽約時間：' . esc_html( $signed_time ) . '</div>';
+        }
+        if ( $signed_ip !== '' ) {
+            $signed_block .= '<div class="woc-pdf-signed__row">簽署 IP：' . esc_html( $signed_ip ) . '</div>';
+        }
 
-$signed_block .= '</div>';
-$signed_block .= '</div>';
+        $signed_block .= '</div>'; // .woc-pdf-signed__meta
+        $signed_block .= '</div>'; // .woc-pdf-signed
 
-$html .= $signed_block;
-
+        $html .= $signed_block;
 
         $html .= '</div></body></html>';
-
-        // ✅ 最後再保險：如果整份 HTML 還是出現兩份，只留最後一份
-        $html = self::keep_last_signed_block_only( $html );
-
-        // === DEBUG: 看看 HTML 最後長什麼樣 + 簽名區塊出現幾次 ===
-if ( defined('WP_DEBUG') && WP_DEBUG ) {
-    $cnt = 0;
-    if ( is_string( $html ) && $html !== '' ) {
-        $cnt = preg_match_all( '~\bwoc-contract-signed\b~i', $html, $mm );
-    }
-
-    error_log( 'WOC_PDF_SIGNED_COUNT=' . intval( $cnt ) );
-
-    // 末段 2500 字：通常足夠涵蓋 footer / 簽名區
-    error_log( 'WOC_PDF_HTML_SNIP=' . substr( $html, -2500 ) );
-}
 
         return apply_filters( 'woc_contracts_pdf_html', $html, $contract_id );
     }
 
     /**
-     * 判斷是否已簽署（提供 filter 讓你對接你實際狀態值）
+     * 判斷是否已簽署
      */
     public static function is_signed( $contract_id ) {
 
