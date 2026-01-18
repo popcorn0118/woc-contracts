@@ -2,7 +2,7 @@
 /**
  * Plugin Name: 線上合約
  * Description: 客製線上合約與簽署系統
- * Version:     1.1.0
+ * Version:     1.2.0
  * Author:      popcorn
  * Text Domain: woc-contracts
  */
