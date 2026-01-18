@@ -106,23 +106,45 @@ class WOC_Contracts_PDF {
             wp_die( esc_html__( 'PDF not found.', 'woc-contracts' ) );
         }
 
-        $filename = basename( $abs );
+        // 下載檔名用「含中文標題」版本（不影響實體檔名）
+        $download_filename = self::get_download_filename( $post_id );
 
-        // 下載檔名支援 UTF-8（中文）
         // fallback 用 ASCII，避免某些環境不吃 filename*
-        $fallback = sanitize_file_name( $filename );
+        $fallback = sanitize_file_name( $download_filename );
         if ( $fallback === '' ) {
             $fallback = 'contract-' . absint( $post_id ) . '.pdf';
         }
 
         nocache_headers();
         header( 'Content-Type: application/pdf' );
-        header( 'Content-Disposition: attachment; filename="' . $fallback . '"; filename*=UTF-8\'\'' . rawurlencode( $filename ) );
+        header( 'Content-Disposition: attachment; filename="' . $fallback . '"; filename*=UTF-8\'\'' . rawurlencode( $download_filename ) );
         header( 'Content-Length: ' . filesize( $abs ) );
 
         // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
         readfile( $abs );
         exit;
+    }
+
+    /**
+     * 下載用檔名（含中文標題）
+     * - 不更動實體檔案檔名，只影響瀏覽器下載時顯示名稱
+     */
+    private static function get_download_filename( $contract_id ) {
+
+        $contract_id = absint( $contract_id );
+
+        // 用現行規則組「帶標題」檔名
+        $filename = self::build_filename( $contract_id );
+
+        // 確保有 .pdf 結尾
+        if ( ! preg_match( '/\.pdf$/i', $filename ) ) {
+            $filename .= '.pdf';
+        }
+
+        // 最後防線：移除換行避免 header 注入
+        $filename = str_replace( [ "\r", "\n" ], '', $filename );
+
+        return $filename;
     }
 
     /**
