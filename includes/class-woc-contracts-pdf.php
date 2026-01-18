@@ -108,9 +108,16 @@ class WOC_Contracts_PDF {
 
         $filename = basename( $abs );
 
+        // 下載檔名支援 UTF-8（中文）
+        // fallback 用 ASCII，避免某些環境不吃 filename*
+        $fallback = sanitize_file_name( $filename );
+        if ( $fallback === '' ) {
+            $fallback = 'contract-' . absint( $post_id ) . '.pdf';
+        }
+
         nocache_headers();
         header( 'Content-Type: application/pdf' );
-        header( 'Content-Disposition: attachment; filename="' . $filename . '"' );
+        header( 'Content-Disposition: attachment; filename="' . $fallback . '"; filename*=UTF-8\'\'' . rawurlencode( $filename ) );
         header( 'Content-Length: ' . filesize( $abs ) );
 
         // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
@@ -594,13 +601,46 @@ class WOC_Contracts_PDF {
         ];
     }
 
+    /**
+     * 標題 → 檔名可用字串（保留中文；移除禁用字元；限長）
+     */
+    private static function normalize_title_for_filename( $title ) {
+
+        $title = wp_strip_all_tags( (string) $title );
+        $title = trim( $title );
+        if ( $title === '' ) return 'contract';
+
+        // 移除 Windows / 檔案系統禁用字元：\/:*?"<>| 以及控制字元
+        $title = preg_replace( '#[\\x00-\\x1F\\x7F\\\\/:*?"<>|]+#u', '', $title );
+
+        // 空白收斂成單一 "-"
+        $title = preg_replace( '#\\s+#u', '-', $title );
+        $title = trim( $title, "- \t\n\r\0\x0B" );
+
+        // 避免太長
+        $max = 40;
+        if ( function_exists( 'mb_substr' ) ) {
+            $title = mb_substr( $title, 0, $max, 'UTF-8' );
+        } else {
+            $title = substr( $title, 0, $max );
+        }
+
+        return $title !== '' ? $title : 'contract';
+    }
+
     public static function build_filename( $contract_id ) {
 
         $contract_id = absint( $contract_id );
-        $ts          = gmdate( 'Ymd-His' );
-        $rand        = wp_generate_password( 8, false, false );
 
-        return 'contract-' . $contract_id . '-' . $ts . '-' . $rand . '.pdf';
+        $title_raw = get_the_title( $contract_id );
+        $title     = self::normalize_title_for_filename( $title_raw );
+
+        // 用 WP 時區（跟後台設定一致），不要 gmdate
+        $ts   = wp_date( 'Ymd-His' );
+        $rand = wp_generate_password( 8, false, false );
+
+        // contract-張大名-188-20260118-120943-6yJBKdHQ.pdf
+        return 'contract-' . $title . '-' . $contract_id . '-' . $ts . '-' . $rand . '.pdf';
     }
 
     public static function hash_file_safe( $abs_path ) {
