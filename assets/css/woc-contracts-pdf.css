@@ -1,0 +1,240 @@
+/* 下載PDF專用CSS（mPDF safe）
+ * 原則：
+ * - 不使用 flex/grid/sticky、media query、hover、visibility hack
+ * - 只保留排版/字體/清單/表格/分頁控制
+ */
+
+ @page { margin: 18mm 16mm; }
+
+ html, body {
+   margin: 0;
+   padding: 0;
+ }
+ 
+ body{
+   font-family: sun-exta;
+   font-size: 10pt;
+   line-height: 1.2;
+   color: #000;
+ }
+ 
+ /* 基礎文字 */
+ p{ margin: 0 0 8pt; }
+ 
+ strong, b { font-weight: 700; }
+ em, i { font-style: italic; }
+ 
+ hr{
+   border: 0;
+   border-top: 0.2mm solid #999;
+   margin: 10pt 0;
+ }
+ 
+ /* 標題（現在 HTML 用 h1 + 內容可能也會有 h2/h3） */
+ h1{
+   font-size: 18pt;
+   margin: 0 0 10pt;
+   text-align: center;
+   letter-spacing: 2pt;
+ }
+ h2{
+   font-size: 14pt;
+   margin: 10pt 0 6pt;
+ }
+ h3{
+   font-size: 12pt;
+   margin: 8pt 0 4pt;
+ }
+ 
+ /* meta 資訊 */
+ .meta{
+   color:#666;
+   font-size: 9pt;
+   margin: 0 0 12pt;
+ }
+ 
+ /* 合約內容區：保留前台用到的 class（不動 HTML 也能吃） */
+ .contract-container,
+ .woc-contract-content,
+ .woc-contract-wrap,
+ .woc-contract-wrap-print {
+   font-size: 11pt;
+ }
+ 
+ /* 前台用的主標題 class：c_title（合約常見置中大標） */
+ .c_title {
+   text-align: center;
+   margin: 0 0 12pt;
+   font-weight: 700;
+   font-size: 16pt; /* 前台 24px 太大，PDF 用 pt 比較穩 */
+ }
+ 
+ /* 前台的 signUsingTitle（標題＋膠囊）：
+  * PDF 不做 after 線條（position/transform 容易怪），只保留可讀性
+  */
+ .signUsingTitle {
+   font-size: 16pt;
+   text-align: center;
+   font-weight: 700;
+   margin: 0 0 8pt;
+ }
+ .signUsingTitle span {
+   background: #5a5a5a;
+   color: #fff;
+   padding: 2pt 10pt;
+   border-radius: 20pt;
+ }
+ 
+ /* signUsing 說明文字（置中小字） */
+ .signUsing {
+   font-size: 10pt;
+   text-align: center;
+   line-height: 1.4;
+   margin: 0 0 10pt;
+   color: #5c5c5c;
+ }
+ 
+ /* 通用置中/底色 */
+ .c_t_center { text-align: center; }
+ .c_bg_gral { background-color: #efefef; }
+ 
+ /* 清單：保留前台用到的幾種 class */
+ ol, ul{
+   margin: 0 0 8pt 18pt;
+   padding: 0;
+ }
+ li{ margin: 0 0 4pt; }
+ 
+ /* 合約常見：中文條列（前台 c_cont2 用 cjk-ideographic）
+  * mPDF 對 list-style 支援不一定完美，但這個通常可用；失敗也至少不會爆
+  */
+ .c_cont2{
+   list-style: cjk-ideographic;
+   padding-left: 18pt;
+   margin: 0 0 8pt;
+ }
+ 
+ /* 無樣式清單（c_cont3） */
+ .c_cont3{
+   list-style: none;
+   margin: 0 0 8pt;
+   padding: 0;
+ }
+ 
+ /* 內縮段落（c_cont4） */
+ .c_cont4{
+   padding-left: 12pt;
+ }
+ 
+ /* 文字裝飾 */
+ .c_cont_b-line{ text-decoration: underline; }
+ 
+ /* row/col：前台用 flex，PDF 改成 float/百分比（mPDF 老派但穩）
+  * 注意：如果的 HTML 真的依賴 .row + .col-33 來排欄位，這能救。
+  */
+ .row { width: 100%; }
+ .row:after { content:""; display:block; clear:both; }
+ .row li {
+   width: 100%;
+   margin: 0 0 10pt;
+ }
+ .row .col-33 {
+   float: left;
+   width: 33.333%;
+ }
+ 
+ /* c_into：前台是 50% float，PDF 保留（簽名/資料欄常用） */
+ .c_into{
+   list-style: none;
+   margin: 12pt 0;
+   padding: 0 10pt;
+   float: left;
+   width: 50%;
+ }
+ .c_into:after { content:""; display:block; clear:both; }
+ 
+ /* 日期區塊：前台用 flex，PDF 改成 table-like 做法（穩）
+  * 如果沒用到也不會影響
+  */
+ .c_date{
+   width: 100%;
+   text-align: center;
+   margin: 0 0 12pt;
+   font-size: 14pt;
+ }
+ .c_date-text{
+   line-height: 1.2;
+ }
+ 
+ /* 印章圖（如果有） */
+ .seal-img{
+   width: 80px;
+ }
+ 
+ /* 簽名區：前台 print 用 flex，我們改成 float/50%（mPDF 友善） */
+ .woc-contract-signed{
+   margin-top: 10pt;
+   font-size: 11pt;
+   color: #000;
+ }
+ .woc-contract-signed:after { content:""; display:block; clear:both; }
+ 
+ .woc-signature-image-box,
+ .woc-signature-info{
+   float: left;
+   width: 50%;
+ }
+ 
+ .woc-signature-info{
+   padding-left: 12pt;
+ }
+ 
+ .woc-signature-image{
+   display: block;
+   width: 50mm;      /* 前台 print 的 50mm 直接沿用，PDF 很適合 */
+   max-width: 100%;
+   height: auto;
+ }
+ 
+ /* 表格（原本 PDF baseline 已有，保留並加強） */
+ table{
+   width: 100%;
+   border-collapse: collapse;
+   margin: 0 0 10pt;
+ }
+ td, th{
+   border: 0.2mm solid #999;
+   padding: 2mm 2.5mm;
+   vertical-align: top;
+   font-size: 10.5pt;
+ }
+ 
+ /* 分頁控制：避免圖片/簽名/兩欄資訊被切半 */
+ img{
+   max-width: 100%;
+   height: auto;
+   page-break-inside: avoid;
+ }
+ .woc-signature-image-box,
+ .woc-contract-signed,
+ .c_into,
+ table,
+ tr,
+ td,
+ th{
+   page-break-inside: avoid;
+ }
+ 
+ /* 明確避免一些前台才有意義的東西（PDF 乾淨點）
+  * 這些 class 若被輸出到內容裡，PDF 直接隱藏
+  */
+ .no-print,
+ #woc-submit-signature,
+ #woc-clear-signature,
+ #woc-print,
+ .woc-button-warp,
+ canvas#woc-signature-pad,
+ .woc-contract-copyright {
+   display: none !important;
+ }
+ 

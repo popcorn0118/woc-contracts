@@ -79,10 +79,10 @@ class WOC_Contracts_Frontend {
         ) {
             wp_die( '簽名資料不完整。', '簽名錯誤', 400 );
         }
-
+    
         $contract_id = (int) $_POST['woc_contract_id'];
         $token       = sanitize_text_field( wp_unslash( $_POST['woc_token'] ) );
-
+    
         // nonce
         if (
             ! isset( $_POST['woc_sign_nonce'] ) ||
@@ -98,93 +98,108 @@ class WOC_Contracts_Frontend {
             wp_safe_redirect( $redirect );
             exit;
         }
-
+    
         $contract = get_post( $contract_id );
         if ( ! $contract || $contract->post_type !== WOC_Contracts_CPT::POST_TYPE_CONTRACT ) {
             wp_die( '找不到合約。', '簽名錯誤', 404 );
         }
-
-        //密碼保護：沒輸入密碼（沒有 wp-postpass cookie）就禁止簽名寫入
+    
+        // 密碼保護：沒輸入密碼就禁止簽名寫入
         if ( post_password_required( $contract ) ) {
             wp_die( '需要先輸入合約密碼。', '簽名錯誤', 403 );
         }
-
+    
         $required_token = get_post_meta( $contract_id, WOC_Contracts_CPT::META_VIEW_TOKEN, true );
         if ( empty( $required_token ) || ! hash_equals( $required_token, $token ) ) {
             wp_die( '合約連結已失效或無效。', '簽名錯誤', 400 );
         }
-
+    
         $status = get_post_meta( $contract_id, WOC_Contracts_CPT::META_STATUS, true );
         if ( $status === 'signed' ) {
             wp_die( '此合約已簽署，無法重複簽署。', '簽名錯誤', 400 );
         }
-
+    
         $data_url = wp_unslash( $_POST['woc_signature_data'] );
-
+    
         if ( ! preg_match( '#^data:image/png;base64,#', $data_url ) ) {
             wp_die( '簽名格式錯誤。', '簽名錯誤', 400 );
         }
-
+    
         $base64 = substr( $data_url, strpos( $data_url, ',' ) + 1 );
         if ( $base64 === '' ) {
             wp_die( '簽名資料不完整。', '簽名錯誤', 400 );
         }
-
+    
         $binary = base64_decode( $base64, true );
         if ( $binary === false ) {
             wp_die( '簽名資料無法解析。', '簽名錯誤', 400 );
         }
-
-        // 用「解碼後」大小判斷（base64 會膨脹）
+    
+        // 用「解碼後」大小判斷
         if ( strlen( $binary ) > 5 * 1024 * 1024 ) {
             wp_die( '簽名資料過大。', '簽名錯誤', 413 );
         }
-
-        // 檢查圖片可解析（拿到 GD resource 後釋放）
+    
+        // 檢查圖片可解析（GD）
         $img = @imagecreatefromstring( $binary );
         if ( ! $img ) {
             wp_die( '簽名圖片無法辨識。', '簽名錯誤', 400 );
         }
         imagedestroy( $img );
-
+    
         // uploads 路徑
         $upload = wp_upload_dir();
         if ( ! empty( $upload['error'] ) ) {
             wp_die( '無法儲存簽名檔案：' . esc_html( $upload['error'] ), '簽名錯誤', 500 );
         }
-
+    
         $subdir = '/woc-signatures';
         $dir    = trailingslashit( $upload['basedir'] ) . ltrim( $subdir, '/' );
-
+    
         if ( ! wp_mkdir_p( $dir ) ) {
             wp_die( '無法建立簽名資料夾。', '簽名錯誤', 500 );
         }
-
-        // 唯一檔名避免撞檔
+    
         $base_name = 'contract-' . $contract_id . '-' . time() . '.png';
         $filename  = wp_unique_filename( $dir, $base_name );
         $file_path = trailingslashit( $dir ) . $filename;
-
+    
         $written = ( file_put_contents( $file_path, $binary ) !== false );
         if ( ! $written ) {
             wp_die( '簽名檔案寫入失敗。', '簽名錯誤', 500 );
         }
-
+    
         $file_url = trailingslashit( $upload['baseurl'] ) . ltrim( $subdir, '/' ) . '/' . $filename;
-
+    
+        // 寫入簽署 meta（先把資料寫完整）
         update_post_meta( $contract_id, WOC_Contracts_CPT::META_SIGNATURE_IMAGE, esc_url_raw( $file_url ) );
         update_post_meta( $contract_id, WOC_Contracts_CPT::META_STATUS, 'signed' );
         update_post_meta( $contract_id, WOC_Contracts_CPT::META_SIGNED_AT, current_time( 'mysql' ) );
-
+    
         $ip = isset( $_SERVER['REMOTE_ADDR'] ) ? sanitize_text_field( wp_unslash( $_SERVER['REMOTE_ADDR'] ) ) : '';
         update_post_meta( $contract_id, WOC_Contracts_CPT::META_SIGNED_IP, $ip );
-
+    
+        // log
         $message = '客戶使用以下方式在線上簽訂合約';
         if ( $ip ) {
             $message .= ' ' . $ip;
         }
         WOC_Contracts_CPT::add_audit_log( $contract_id, $message );
-
+    
+        // ✅ 簽署完成 → 自動產 PDF（失敗不擋簽署流程，只記錄）
+        if ( class_exists( 'WOC_Contracts_PDF' ) && method_exists( 'WOC_Contracts_PDF', 'ensure_pdf' ) ) {
+    
+            $res = WOC_Contracts_PDF::ensure_pdf( $contract_id, true );
+    
+            if ( is_wp_error( $res ) ) {
+                WOC_Contracts_CPT::add_audit_log( $contract_id, 'PDF 產生失敗：' . $res->get_error_message() );
+            } else {
+                WOC_Contracts_CPT::add_audit_log( $contract_id, 'PDF 已自動產生完成。' );
+            }
+        } else {
+            WOC_Contracts_CPT::add_audit_log( $contract_id, 'PDF 產生失敗：PDF 模組未載入。' );
+        }
+    
         $redirect = add_query_arg(
             [
                 't'      => $token,
@@ -192,11 +207,14 @@ class WOC_Contracts_Frontend {
             ],
             get_permalink( $contract_id )
         );
-
+    
         wp_safe_redirect( $redirect );
         exit;
     }
-
+    
+    
+    
+    
     
     
 

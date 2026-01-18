@@ -169,6 +169,121 @@ class WOC_Contracts_PDF {
     }
 
     /**
+     * 讀取 PDF 專用 CSS（mPDF 會吃的那份）
+     */
+    private static function get_pdf_css() {
+
+        $css_file = trailingslashit( WOC_CONTRACTS_PATH ) . 'assets/css/woc-contracts-pdf.css';
+        if ( ! file_exists( $css_file ) ) {
+            return '';
+        }
+
+        $css = file_get_contents( $css_file );
+        return $css ? trim( $css ) : '';
+    }
+
+    /**
+     * 取合約 meta key（有常數就用常數，沒有就 fallback）
+     */
+    private static function get_contract_meta_key( $which ) {
+
+        if ( 'signature' === $which ) {
+            if ( class_exists( 'WOC_Contracts_CPT' ) && defined( 'WOC_Contracts_CPT::META_SIGNATURE_IMAGE' ) ) {
+                return WOC_Contracts_CPT::META_SIGNATURE_IMAGE;
+            }
+            return '_woc_signature_image';
+        }
+
+        if ( 'signed_at' === $which ) {
+            if ( class_exists( 'WOC_Contracts_CPT' ) && defined( 'WOC_Contracts_CPT::META_SIGNED_AT' ) ) {
+                return WOC_Contracts_CPT::META_SIGNED_AT;
+            }
+            return '_woc_signed_at';
+        }
+
+        if ( 'signed_ip' === $which ) {
+            if ( class_exists( 'WOC_Contracts_CPT' ) && defined( 'WOC_Contracts_CPT::META_SIGNED_IP' ) ) {
+                return WOC_Contracts_CPT::META_SIGNED_IP;
+            }
+            return '_woc_signed_ip';
+        }
+
+        return '';
+    }
+
+    /**
+     * 將簽名 meta 轉成 mPDF 可用的 img src
+     */
+    private static function get_signature_src( $contract_id ) {
+
+        $key = self::get_contract_meta_key( 'signature' );
+        if ( ! $key ) return '';
+
+        $raw = get_post_meta( absint( $contract_id ), $key, true );
+        if ( ! $raw ) return '';
+
+        $raw = trim( (string) $raw );
+
+        // 1) 最穩：data URI
+        if ( 0 === strpos( $raw, 'data:image/' ) ) {
+            return $raw;
+        }
+
+        // 2) URL
+        if ( preg_match( '#^https?://#i', $raw ) ) {
+            return $raw;
+        }
+
+        // 3) uploads 相對路徑（例如：woc-contracts/signatures/xxx.png）
+        //    或者你存的是 /wp-content/uploads/... 之類
+        $u = wp_upload_dir();
+
+        // 3-1) 以 uploads baseurl 開頭（但沒 http 的怪格式）
+        if ( isset( $u['baseurl'] ) && $u['baseurl'] && 0 === strpos( $raw, $u['baseurl'] ) ) {
+            $maybe_rel = ltrim( str_replace( $u['baseurl'], '', $raw ), '/' );
+            $abs = trailingslashit( $u['basedir'] ) . $maybe_rel;
+            if ( file_exists( $abs ) ) {
+                return 'file://' . $abs;
+            }
+        }
+
+        // 3-2) 以 uploads basedir 開頭的絕對路徑
+        if ( isset( $u['basedir'] ) && $u['basedir'] && 0 === strpos( $raw, $u['basedir'] ) ) {
+            if ( file_exists( $raw ) ) {
+                return 'file://' . $raw;
+            }
+        }
+
+        // 3-3) 當成 uploads 下的相對路徑
+        $abs2 = trailingslashit( $u['basedir'] ) . ltrim( $raw, '/' );
+        if ( file_exists( $abs2 ) ) {
+            return 'file://' . $abs2;
+        }
+
+        return '';
+    }
+
+    /**
+     * 格式化簽約時間（支援 timestamp 或字串）
+     */
+    private static function format_signed_time( $contract_id ) {
+
+        $key = self::get_contract_meta_key( 'signed_at' );
+        if ( ! $key ) return '';
+
+        $raw = get_post_meta( absint( $contract_id ), $key, true );
+        if ( '' === $raw || null === $raw ) return '';
+
+        // timestamp
+        if ( is_numeric( $raw ) ) {
+            return date_i18n( 'Y-m-d H:i:s', (int) $raw );
+        }
+
+        // string（你目前看起來就是這種：2026-01-18 13:26:13）
+        return trim( (string) $raw );
+    }
+
+    /**
      * 確保 PDF 存在（不存在就生成；force=true 強制重建）
      */
     public static function ensure_pdf( $contract_id, $force = false ) {
@@ -192,7 +307,7 @@ class WOC_Contracts_PDF {
             return get_post_meta( $contract_id, self::META_PDF_PATH, true );
         }
 
-        // 產 HTML（提供 filter 讓你之後換成正式列印模板）
+        // 產 HTML
         $html = self::render_pdf_html( $contract_id );
         if ( ! $html ) {
             return new WP_Error( 'empty_html', 'Empty PDF HTML.' );
@@ -219,10 +334,23 @@ class WOC_Contracts_PDF {
         try {
 
             $mpdf = new \Mpdf\Mpdf( [
+                'mode'    => 'utf-8',
                 'tempDir' => $dirs['tmp_dir'],
+
+                'autoScriptToLang' => true,
+                'autoLangToFont'   => true,
+
+                'default_font' => 'sun-exta',
             ] );
 
-            $mpdf->WriteHTML( $html );
+            // 先載入 PDF CSS
+            $pdf_css = self::get_pdf_css();
+            if ( $pdf_css ) {
+                $mpdf->WriteHTML( $pdf_css, \Mpdf\HTMLParserMode::HEADER_CSS );
+            }
+
+            // 再輸出 HTML
+            $mpdf->WriteHTML( $html, \Mpdf\HTMLParserMode::HTML_BODY );
             $mpdf->Output( $abs_path, \Mpdf\Output\Destination::FILE );
 
         } catch ( \Throwable $e ) {
@@ -280,41 +408,97 @@ class WOC_Contracts_PDF {
     }
 
     /**
-     * 產 PDF 用 HTML（先給最小可跑版本；你之後用 filter 換成正式模板）
+     * 產 PDF 用 HTML（不再內嵌 CSS，改由 woc-contracts-pdf.css 控制）
+     * - Contract ID 移到底部資訊
+     * - 加上簽名圖 + 簽約時間 + IP
      */
     public static function render_pdf_html( $contract_id ) {
 
         $post = get_post( $contract_id );
         if ( ! $post ) return '';
-
-        $title   = get_the_title( $contract_id );
-        $content = apply_filters( 'the_content', $post->post_content );
-
-        $html  = '<!doctype html><html><head><meta charset="utf-8">';
-        $html .= '<style>body{font-family: sans-serif; font-size: 12pt;} h1{font-size:18pt;margin:0 0 12pt;} .meta{color:#666;font-size:10pt;margin:0 0 16pt;}</style>';
-        $html .= '</head><body>';
+    
+        $title = get_the_title( $contract_id );
+    
+        // ✅ 先用「原始內容」避免 the_content filter 偷塞簽名
+        $raw_content = get_the_content( null, false, $post );
+        $content     = wpautop( $raw_content );
+    
+        // ✅ 防重：把內容裡可能被塞進去的簽名區塊全部移除
+        // 只要內容裡有這些 class，就砍掉整段 block（保守但有效）
+        $patterns = [
+            // 整段簽名容器
+            '~<div[^>]*class="[^"]*\bwoc-contract-signed\b[^"]*"[^>]*>.*?</div>\s*~is',
+    
+            // 有些情況不是包在 woc-contract-signed，而是拆開塞
+            '~<div[^>]*class="[^"]*\bwoc-signature-image-box\b[^"]*"[^>]*>.*?</div>\s*~is',
+            '~<div[^>]*class="[^"]*\bwoc-signature-info\b[^"]*"[^>]*>.*?</div>\s*~is',
+        ];
+    
+        $content = preg_replace( $patterns, '', $content );
+    
+        // === 簽名資料（你現成的 get_signature_src 用）===
+        $sig_src = self::get_signature_src( $contract_id );
+    
+        $signed_at_key = self::get_contract_meta_key( 'signed_at' );
+        $signed_ip_key = self::get_contract_meta_key( 'signed_ip' );
+    
+        $signed_at = $signed_at_key ? get_post_meta( absint( $contract_id ), $signed_at_key, true ) : '';
+        $signed_ip = $signed_ip_key ? get_post_meta( absint( $contract_id ), $signed_ip_key, true ) : '';
+    
+        $signed_time = '';
+        if ( $signed_at !== '' ) {
+            $signed_time = is_numeric( $signed_at ) ? wp_date( 'Y-m-d H:i:s', (int) $signed_at ) : (string) $signed_at;
+        }
+        $signed_ip = trim( (string) $signed_ip );
+    
+        // === HTML（class 對應你的 pdf.css）===
+        $html  = '<!doctype html><html><head><meta charset="utf-8"></head><body>';
+        $html .= '<div class="woc-contract-wrap-print">';
+    
         $html .= '<h1>' . esc_html( $title ) . '</h1>';
-        $html .= '<div class="meta">Contract ID: ' . intval( $contract_id ) . '</div>';
+    
+        $html .= '<div class="woc-contract-content">';
         $html .= $content;
-        $html .= '</body></html>';
-
-        /**
-         * 你之後正式版在這裡接：回傳完整 HTML（含 inline css）
-         * apply_filters( 'woc_contracts_pdf_html', $html, $contract_id )
-         */
-        return apply_filters( 'woc_contracts_pdf_html', $html, $contract_id );
+        $html .= '</div>';
+    
+        // ✅ 底部簽名＋資訊（只輸出一次）
+        $html .= '<div class="woc-contract-signed">';
+    
+        $html .= '<div class="woc-signature-image-box">';
+        if ( $sig_src ) {
+            $html .= '<img class="woc-signature-image" src="' . esc_attr( $sig_src ) . '" alt="Signature">';
+        }
+        $html .= '</div>';
+    
+        $html .= '<div class="woc-signature-info">';
+        $html .= '<div class="meta">Contract ID: ' . intval( $contract_id ) . '</div>';
+    
+        if ( $signed_time !== '' ) {
+            $html .= '<div class="meta">已簽約時間：' . esc_html( $signed_time ) . '</div>';
+        }
+        if ( $signed_ip !== '' ) {
+            $html .= '<div class="meta">簽署 IP：' . esc_html( $signed_ip ) . '</div>';
+        }
+    
+        $html .= '</div>'; // .woc-signature-info
+        $html .= '</div>'; // .woc-contract-signed
+    
+        $html .= '</div></body></html>';
+    
+        return $html;
     }
+    
+    
+    
 
     /**
      * 判斷是否已簽署（提供 filter 讓你對接你實際狀態值）
      */
     public static function is_signed( $contract_id ) {
 
-        // 預設：狀態 meta key 優先使用 WOC_Contracts_CPT::META_STATUS
         $status_key = defined( 'WOC_Contracts_CPT::META_STATUS' ) ? WOC_Contracts_CPT::META_STATUS : '_woc_status';
         $status     = get_post_meta( absint( $contract_id ), $status_key, true );
 
-        // 預設已簽署值：signed（你可用 filter 改）
         $signed_value = apply_filters( 'woc_contracts_signed_status_value', 'signed', absint( $contract_id ) );
 
         return ( (string) $status === (string) $signed_value );
