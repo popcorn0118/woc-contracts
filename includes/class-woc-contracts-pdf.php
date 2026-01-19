@@ -335,12 +335,14 @@ class WOC_Contracts_PDF {
 
         // 1) 最穩：data URI
         if ( 0 === strpos( $raw, 'data:image/' ) ) {
-            return $raw;
+            $maybe = self::make_pdf_signature_jpeg_src( $raw, absint( $contract_id ) );
+            return $maybe ? $maybe : $raw;
         }
 
         // 2) URL
         if ( preg_match( '#^https?://#i', $raw ) ) {
-            return $raw;
+            $maybe = self::make_pdf_signature_jpeg_src( $raw, absint( $contract_id ) );
+            return $maybe ? $maybe : $raw;
         }
 
         // 3) uploads 相對路徑 / 絕對路徑
@@ -351,24 +353,171 @@ class WOC_Contracts_PDF {
             $maybe_rel = ltrim( str_replace( $u['baseurl'], '', $raw ), '/' );
             $abs = trailingslashit( $u['basedir'] ) . $maybe_rel;
             if ( file_exists( $abs ) ) {
-                return 'file://' . $abs;
+                $maybe = self::make_pdf_signature_jpeg_src( $abs, absint( $contract_id ) );
+                return $maybe ? $maybe : ( 'file://' . $abs );
             }
         }
 
         // 3-2) 以 uploads basedir 開頭的絕對路徑
         if ( isset( $u['basedir'] ) && $u['basedir'] && 0 === strpos( $raw, $u['basedir'] ) ) {
             if ( file_exists( $raw ) ) {
-                return 'file://' . $raw;
+                $maybe = self::make_pdf_signature_jpeg_src( $raw, absint( $contract_id ) );
+                return $maybe ? $maybe : ( 'file://' . $raw );
             }
         }
 
         // 3-3) 當成 uploads 下的相對路徑
         $abs2 = trailingslashit( $u['basedir'] ) . ltrim( $raw, '/' );
         if ( file_exists( $abs2 ) ) {
-            return 'file://' . $abs2;
+            $maybe = self::make_pdf_signature_jpeg_src( $abs2, absint( $contract_id ) );
+            return $maybe ? $maybe : ( 'file://' . $abs2 );
         }
 
         return '';
+    }
+
+    /**
+     * PDF 專用：把簽名圖轉成 JPG 並縮小到約 1/3
+     * - 成功回傳 file://...jpg
+     * - 失敗回傳空字串（caller 會 fallback 用原 src）
+     */
+    private static function make_pdf_signature_jpeg_src( $input, $contract_id ) {
+
+        // 需要 GD；沒有就直接放棄（不動其他）
+        if ( ! function_exists( 'imagecreatefromstring' ) || ! function_exists( 'imagejpeg' ) ) {
+            return '';
+        }
+
+        $contract_id = absint( $contract_id );
+        if ( ! $contract_id ) return '';
+
+        $dirs = self::get_upload_dirs();
+        if ( empty( $dirs['tmp_dir'] ) ) return '';
+
+        if ( ! file_exists( $dirs['tmp_dir'] ) ) {
+            wp_mkdir_p( $dirs['tmp_dir'] );
+        }
+        if ( ! file_exists( $dirs['tmp_dir'] ) ) {
+            return '';
+        }
+
+        $bin = '';
+
+        // data URI
+        if ( is_string( $input ) && 0 === strpos( $input, 'data:image/' ) ) {
+
+            $parts = explode( ',', $input, 2 );
+            if ( count( $parts ) !== 2 ) return '';
+
+            $b64 = trim( $parts[1] );
+            if ( $b64 === '' ) return '';
+
+            $decoded = base64_decode( $b64 );
+            if ( ! $decoded ) return '';
+
+            $bin = $decoded;
+
+        // URL
+        } elseif ( is_string( $input ) && preg_match( '#^https?://#i', $input ) ) {
+
+            $res = wp_remote_get( $input, [ 'timeout' => 10 ] );
+            if ( is_wp_error( $res ) ) return '';
+
+            $code = wp_remote_retrieve_response_code( $res );
+            if ( (int) $code !== 200 ) return '';
+
+            $body = wp_remote_retrieve_body( $res );
+            if ( ! $body ) return '';
+
+            $bin = $body;
+
+        // local file
+        } elseif ( is_string( $input ) && file_exists( $input ) ) {
+
+            $body = @file_get_contents( $input );
+            if ( ! $body ) return '';
+
+            $bin = $body;
+
+        } else {
+            return '';
+        }
+
+        if ( ! $bin ) return '';
+
+        $im = @imagecreatefromstring( $bin );
+        if ( ! $im ) return '';
+
+        $w = imagesx( $im );
+        $h = imagesy( $im );
+        if ( ! $w || ! $h ) {
+            imagedestroy( $im );
+            return '';
+        }
+
+        // 縮小到約 1/3（寬高都除以 3）
+        $new_w = (int) max( 1, floor( $w / 3 ) );
+        $new_h = (int) max( 1, floor( $h / 3 ) );
+
+        $dst = imagecreatetruecolor( $new_w, $new_h );
+        if ( ! $dst ) {
+            imagedestroy( $im );
+            return '';
+        }
+
+        // 白底（避免 PNG 透明轉 JPG 變黑底）
+        $white = imagecolorallocate( $dst, 255, 255, 255 );
+        imagefilledrectangle( $dst, 0, 0, $new_w, $new_h, $white );
+
+        // 取樣縮放
+        imagecopyresampled( $dst, $im, 0, 0, 0, 0, $new_w, $new_h, $w, $h );
+
+        // 輸出檔名：同一份簽名（內容 hash）會覆蓋同一檔，避免 tmp 爆長
+        $hash = substr( sha1( $bin ), 0, 12 );
+        $jpg  = trailingslashit( $dirs['tmp_dir'] ) . 'woc-sig-' . $contract_id . '-' . $hash . '.jpg';
+
+        // JPG 品質
+        $quality = (int) apply_filters( 'woc_contracts_pdf_signature_jpeg_quality', 65, $contract_id );
+
+        $ok = @imagejpeg( $dst, $jpg, $quality );
+
+        imagedestroy( $dst );
+        imagedestroy( $im );
+
+        if ( ! $ok || ! file_exists( $jpg ) ) {
+            return '';
+        }
+
+        return 'file://' . $jpg;
+    }
+
+    /**
+     * 產完 PDF 後：清掉該合約在 mpdf-tmp 產生的暫存簽名 jpg
+     * - 只清 woc-sig-{contract_id}-*.jpg
+     */
+    private static function cleanup_tmp_signature_jpegs( $contract_id ) {
+
+        $contract_id = absint( $contract_id );
+        if ( ! $contract_id ) return;
+
+        $dirs = self::get_upload_dirs();
+        if ( empty( $dirs['tmp_dir'] ) ) return;
+
+        $tmp_dir = trailingslashit( $dirs['tmp_dir'] );
+        if ( ! is_dir( $tmp_dir ) ) return;
+
+        $pattern = $tmp_dir . 'woc-sig-' . $contract_id . '-*.jpg';
+
+        // glob 可能被主機禁用；禁用就直接不清（不影響 PDF）
+        $files = @glob( $pattern );
+        if ( empty( $files ) || ! is_array( $files ) ) return;
+
+        foreach ( $files as $f ) {
+            if ( ! is_string( $f ) || $f === '' ) continue;
+            if ( is_file( $f ) ) {
+                @unlink( $f );
+            }
+        }
     }
 
     /**
@@ -449,6 +598,14 @@ class WOC_Contracts_PDF {
                 'default_font' => 'sun-exta',
             ] );
 
+            // PDF 壓縮（只影響輸出 PDF）
+            if ( method_exists( $mpdf, 'SetCompression' ) ) {
+                $mpdf->SetCompression( true );
+            }
+            if ( property_exists( $mpdf, 'jpeg_quality' ) ) {
+                $mpdf->jpeg_quality = (int) apply_filters( 'woc_contracts_pdf_jpeg_quality', 65, $contract_id );
+            }
+
             // 先載入 PDF CSS
             $pdf_css = self::get_pdf_css();
             if ( $pdf_css ) {
@@ -463,6 +620,9 @@ class WOC_Contracts_PDF {
 
             return new WP_Error( 'mpdf_error', $e->getMessage() );
         }
+
+        // 成功後：清掉暫存簽名 jpg（只動 mpdf-tmp）
+        self::cleanup_tmp_signature_jpegs( $contract_id );
 
         // 存 meta（存相對路徑）
         $rel_path = 'woc-contracts/pdfs/' . $filename;
