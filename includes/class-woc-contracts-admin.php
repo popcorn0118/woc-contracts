@@ -144,71 +144,70 @@ class WOC_Contracts_Admin {
 
     public static function render_contract_meta_box( $post ) {
 
-        // 目前已選範本
-        $current_template_id = get_post_meta( $post->ID, WOC_Contracts_CPT::META_TEMPLATE_ID, true );
-        $status              = get_post_meta( $post->ID, WOC_Contracts_CPT::META_STATUS, true );
-
-        // 取得所有已發布的範本（只有未簽署時才會用到）
-        $templates = get_posts( [
-            'post_type'      => WOC_Contracts_CPT::POST_TYPE_TEMPLATE,
-            'post_status'    => 'publish',
-            'posts_per_page' => -1,
-            'orderby'        => 'title',
-            'order'          => 'ASC',
-        ] );
-
+        $current_template_id = (int) get_post_meta(
+            $post->ID,
+            WOC_Contracts_CPT::META_TEMPLATE_ID,
+            true
+        );
+    
         wp_nonce_field( 'woc_contract_meta', 'woc_contract_meta_nonce' );
-
-        // === 若已簽署：只顯示範本名稱，不能再換 ===
-        if ( $status === 'signed' ) : 
-            ?>
+    
+        // 只允許新增(auto-draft)時選一次
+        $is_new_contract = ( $post->post_status === 'auto-draft' );
+    
+        // === 編輯頁：只顯示，不給改 ===
+        if ( ! $is_new_contract ) : ?>
             <p>
                 <strong>合約範本：</strong>
                 <?php
-                if ( $current_template_id ) {
-                    echo esc_html( get_the_title( $current_template_id ) );
-                } else {
-                    echo '無';
-                }
+                echo $current_template_id
+                    ? esc_html( get_the_title( $current_template_id ) )
+                    : '無';
                 ?>
             </p>
-            <p class="description">
-                此合約已完成簽署，範本資訊僅供檢視，無法再變更。
-                若需更換範本，請先在下方「簽署資訊」清除簽名並重新開放簽署。
-            </p>
+            <!-- <p class="description">範本無法更改。</p> -->
+    
+        <?php else : ?>
             <?php
-            return;
-        endif;
-        ?>
-
-        <!-- 未簽署狀態：顯示原本的下拉 + 按鈕 -->
-        <p>
-            <label for="woc_template_id"><strong>合約範本</strong></label><br>
-            <select name="woc_template_id" id="woc_template_id" style="min-width:260px;">
-                <option value="">— 請選擇範本 —</option>
-                <?php foreach ( $templates as $template ) : ?>
-                    <option value="<?php echo esc_attr( $template->ID ); ?>"
-                        <?php selected( (int) $current_template_id, (int) $template->ID ); ?>>
-                        <?php echo esc_html( $template->post_title ); ?>
-                    </option>
-                <?php endforeach; ?>
-            </select>
-
-            <button type="button"
-                    style="margin-top: 10px"
+            // === 新增(auto-draft)：才抓範本並顯示下拉 ===
+            $templates = get_posts( [
+                'post_type'      => WOC_Contracts_CPT::POST_TYPE_TEMPLATE,
+                'post_status'    => 'publish',
+                'posts_per_page' => -1,
+                'orderby'        => 'title',
+                'order'          => 'ASC',
+            ] );
+            ?>
+    
+            <p>
+                <label for="woc_template_id"><strong>合約範本</strong></label><br>
+                <select name="woc_template_id" id="woc_template_id" style="min-width:260px;">
+                    <option value="">— 請選擇範本 —</option>
+                    <?php foreach ( $templates as $template ) : ?>
+                        <option value="<?php echo esc_attr( $template->ID ); ?>"
+                            <?php selected( $current_template_id, (int) $template->ID ); ?>>
+                            <?php echo esc_html( $template->post_title ); ?>
+                        </option>
+                    <?php endforeach; ?>
+                </select>
+    
+                <button type="button"
+                    style="margin-top:10px"
                     class="button button-secondary"
                     id="woc-load-template-btn"
                     data-post-id="<?php echo esc_attr( $post->ID ); ?>"
                     data-nonce="<?php echo esc_attr( wp_create_nonce( 'woc_load_template' ) ); ?>">
-                載入範本內容
-            </button>
-        </p>
-
-        <p class="description">
-            選擇合約範本後，按「載入範本內容」，系統會將範本內容覆蓋到目前合約的內容欄位。
-        </p>
-        <?php
+                    載入範本內容
+                </button>
+            </p>
+    
+            <p class="description">
+                選擇合約範本後，按「載入範本內容」，系統會將範本內容覆蓋到目前合約的內容欄位。
+            </p>
+    
+        <?php endif;
     }
+    
 
 
     /**
@@ -347,12 +346,17 @@ class WOC_Contracts_Admin {
         }
     
         // 1. 儲存範本 ID（允許空值）
-        $template_id = isset( $_POST['woc_template_id'] ) ? (int) $_POST['woc_template_id'] : 0;
-    
-        if ( $template_id > 0 ) {
-            update_post_meta( $post_id, WOC_Contracts_CPT::META_TEMPLATE_ID, $template_id );
-        } else {
-            delete_post_meta( $post_id, WOC_Contracts_CPT::META_TEMPLATE_ID );
+        // 只允許「從 auto-draft 第一次儲存」時寫入；既有合約（包含舊合約）一律忽略這個欄位。
+        $is_new_from_autodraft = ( isset( $_POST['original_post_status'] ) && $_POST['original_post_status'] === 'auto-draft' );
+        if ( $is_new_from_autodraft ) {
+
+            $template_id = isset( $_POST['woc_template_id'] ) ? (int) $_POST['woc_template_id'] : 0;
+
+            if ( $template_id > 0 ) {
+                update_post_meta( $post_id, WOC_Contracts_CPT::META_TEMPLATE_ID, $template_id );
+            } else {
+                delete_post_meta( $post_id, WOC_Contracts_CPT::META_TEMPLATE_ID );
+            }
         }
     
         // 2. 若尚未有 view_token，產一組
