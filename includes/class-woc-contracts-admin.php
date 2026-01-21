@@ -12,6 +12,11 @@ class WOC_Contracts_Admin {
         add_action( 'add_meta_boxes',        [ __CLASS__, 'add_meta_boxes' ] );
         add_action( 'save_post',             [ __CLASS__, 'save_contract_meta' ], 10, 2 );
         add_action( 'admin_enqueue_scripts', [ __CLASS__, 'enqueue_admin_assets' ] );
+
+        // Screen Options：手機板篩選區預設收合
+        add_filter( 'screen_settings', [ __CLASS__, 'add_filterbar_screen_option' ], 10, 2 );
+        add_action( 'admin_init', [ __CLASS__, 'save_filterbar_screen_option' ] );
+
         add_filter( 'mce_css', [ __CLASS__, 'filter_mce_css' ] );
         add_action( 'wp_ajax_woc_load_template', [ __CLASS__, 'ajax_load_template' ] );
 
@@ -409,6 +414,17 @@ class WOC_Contracts_Admin {
             [ 'jquery' ],
             WOC_CONTRACTS_VERSION,
             true
+        );
+
+        // 給 woc-contracts-admin.js 用的展開/收合功能參數
+        $collapsed = (int) get_user_option( 'woc_filterbar_default_collapsed', 0 );
+        $collapsed = $collapsed ? 1 : 0;
+        wp_localize_script(
+            'woc-contracts-admin',
+            'WOC_ADMIN',
+            [
+                'filterbarCollapsed' => $collapsed,
+            ]
         );
     
         // 只有在「合約編輯頁」才需要 is_signed
@@ -837,6 +853,65 @@ class WOC_Contracts_Admin {
 
 
     
+
+
+   /**
+     * Screen Options：新增「手機板篩選區預設收合」選項（僅合約列表頁）
+     * - 直接用 user_option 儲存（每個使用者各自設定）
+     */
+    public static function add_filterbar_screen_option( $settings, $screen ) {
+
+        // 只在「合約」列表頁顯示
+        if (
+            empty( $screen->base ) ||
+            $screen->base !== 'edit' ||
+            empty( $screen->post_type ) ||
+            $screen->post_type !== WOC_Contracts_CPT::POST_TYPE_CONTRACT
+        ) {
+            return $settings;
+        }
+
+        $opt_name = 'woc_filterbar_default_collapsed';
+        $checked  = (int) get_user_option( $opt_name );
+
+        $html  = '<fieldset class="metabox-prefs">';
+        $html .= '<legend>' . esc_html__( '篩選區', 'woc-contracts' ) . '</legend>';
+
+        // 強制讓 Screen Options 的 form 一定送出這兩個 key
+        $html .= '<input type="hidden" name="wp_screen_options[option]" value="' . esc_attr( $opt_name ) . '">';
+        // 取消勾選也要送出 0
+        $html .= '<input type="hidden" name="wp_screen_options[value]" value="0">';
+
+        $html .= '<label for="woc_filterbar_default_collapsed">';
+        $html .= '<input type="checkbox" id="woc_filterbar_default_collapsed" name="wp_screen_options[value]" value="1" ' . checked( 1, $checked, false ) . '>';
+        $html .= ' ' . esc_html__( '手機板：篩選區預設收合', 'woc-contracts' );
+        $html .= '</label>';
+
+        $html .= '</fieldset>';
+
+        return $settings . $html;
+
+    }
+
+    /**
+     * Screen Options：儲存 checkbox 值（不依賴 set-screen-option）
+     *
+     */
+    public static function save_filterbar_screen_option() {
+
+        if ( empty( $_POST['screenoptionnonce'] ) ) return;
+        if ( ! wp_verify_nonce( $_POST['screenoptionnonce'], 'screen-options-nonce' ) ) return;
+
+        if ( empty( $_POST['wp_screen_options']['option'] ) || $_POST['wp_screen_options']['option'] !== 'woc_filterbar_default_collapsed' ) {
+            return;
+        }
+
+        $raw = $_POST['wp_screen_options']['value'] ?? 0;
+        $new_value = (int) $raw ? 1 : 0;
+
+        update_user_option( get_current_user_id(), 'woc_filterbar_default_collapsed', $new_value, true );
+    }
+
 
 }
 

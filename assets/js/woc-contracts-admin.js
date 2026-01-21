@@ -170,7 +170,67 @@ jQuery(function ($) {
     
 
     
+    /**
+     * 合約列表：手機板篩選列顯示 + 可收合
+     * - 只在手機板執行（WP 後台 mobile breakpoint = 782px）
+     * - 切換方式：body 加/移除 .woc-filterbar-collapsed
+     */
+    if (!window.matchMedia || !window.matchMedia('(max-width: 782px)').matches) {
+        return;
+    }
+    /**
+     * 找到列表頁的 tablenav（上方那一塊）
+     * 如果不存在就直接結束
+     */
+    var $tableNav = $('.tablenav.top');
+    if (!$tableNav.length) {
+        return;
+    }
+    /**
+     * 預設收合（從 PHP user_option 來）
+     * - 先套狀態，再插按鈕，避免載入時閃爍
+     */
+    if (typeof window.WOC_ADMIN !== 'undefined' && String(WOC_ADMIN.filterbarCollapsed) === '1') {
+        $('body').addClass('woc-filterbar-collapsed');
+    }
+    /**
+     * 防止重複插入按鈕（避免某些情境被跑兩次）
+     */
+    if ($('.woc-filterbar-toggle').length) {
+        return;
+    }
+    /**
+     * 插入切換按鈕
+     * - 放在 tablenav 上方
+     * - class 給你之後 CSS / JS 好控制
+     */
+    var $toggleBtn = $('<button>', {
+        type: 'button',
+        class: 'button woc-filterbar-toggle'
+    });
 
+    $tableNav.before($toggleBtn);
+    /**
+     * 同步按鈕文字
+     * - body 有 woc-filterbar-collapsed = 目前是「收合」
+     */
+    function syncButtonText() {
+        $toggleBtn.text(
+            $('body').hasClass('woc-filterbar-collapsed') ? '顯示篩選' : '收合篩選'
+        );
+    }
+    syncButtonText();
+    /**
+     * 點擊切換
+     * - 只做一件事：切 body class
+     * - CSS 決定顯示 / 隱藏
+     */
+    $toggleBtn.on('click', function () {
+        $('body').toggleClass('woc-filterbar-collapsed');
+        syncButtonText();
+    });
+        
+       
     
 
 });
